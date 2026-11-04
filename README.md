@@ -104,12 +104,17 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
   the button offers 0.5×, 1×, 2× and 3× on that camera. iPhone Safari does not list its ultra-wide and telephoto lenses
   as separate cameras, and often does not allow zoom, so there the button cycles the rear and front cameras only. This
   is not yet tested on an iPhone.
-- **Settings** (top bar) opens the editor's controls over the picture, the same Tone, Dither and other panels, so a change
-  shows on the preview at once. **×** closes the sheet.
+- **Settings** (top bar) opens the editor's controls in a band under the picture, the same Tone, Dither and other panels,
+  so a change shows on the preview at once and the picture stays in view. **×** closes the band.
+- The camera is asked for 60 frames a second. The line under the picture shows the rate the camera delivers (some phones
+  give 30), the time each preview frame takes, and the preview size. The preview steps down from 480 to 256 pixels when a
+  frame takes too long for 60 a second, and grows back when there is room.
 - **Vibration** (top bar) sets the feel while you hold the record button: Heartbeat, Tick, Countdown (the beat speeds up
   over the last seconds), Pulse, or Off. The cue starts with the press, repeats while you hold, and stops when the
   recording stops. Android vibrates with the Vibration API. iPhone Safari has no such API; its cues use the switch tick of
   iOS 18 and later. The first tick of each cue is made inside the tap; later ticks are timers, which may not reach the phone.
+  When a recording is saved, the status line reports the mechanism and how many ticks were sent, so you can tell whether the
+  code ran even if the phone feels nothing. iPhone feel is not yet confirmed; iOS may stop script-made ticks in later versions.
 - A tap on the picture shows a focus square. The camera is focused and exposed at that point only where the browser lets
   the page set it.
 - Not available in this version: HDR capture, and flash. Zoom appears only as lenses, and only where the browser allows it.

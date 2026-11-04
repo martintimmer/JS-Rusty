@@ -13,10 +13,12 @@ import {
   cameraSupported, listCameras, openLens, stopCamera, cameraError, isFrontLabel, lensName, zoomRange, setZoom,
 } from './camera.js';
 import { saveClip, listClips, getClip, deleteClip, storageEstimate } from './clip-store.js';
-import { HAPTIC_SCHEMES, vibrate, startRecordingHaptics } from './haptics.js';
+import { HAPTIC_SCHEMES, vibrate, startRecordingHaptics, hapticMechanism } from './haptics.js';
 
-// The preview's short side in pixels: 854×480 for a landscape camera, 480×854 for a portrait one.
-const PREVIEW_SHORT_SIDE = 480;
+// The preview's short side in pixels, from the largest step down. A step down is taken when a camera frame takes longer
+// than FRAME_BUDGET_MS to draw, so the picture keeps its rate (60 frames a second leaves about 16 ms a frame).
+const PREVIEW_STEPS = [480, 400, 320, 256];
+const FRAME_BUDGET_MS = 12;
 // Recording stops at this length. A press shorter than the minimum is not kept.
 const RECORD_SECONDS = 10;
 const MIN_RECORD_SECONDS = 0.3;
@@ -77,6 +79,12 @@ const live = {
   fpsSince: 0,
   renderMs: 0,
   mirror: false,
+  step: 0,
+  workEma: 0,
+  workFrames: 0,
+  cameraFps: 0,
+  paramSig: '',
+  recTicks: 0,
   lenses: DEFAULT_LENSES.slice(),
   lensIndex: 0,
   lensesKnown: false,
@@ -317,6 +325,9 @@ async function startLens(lens) {
   }
   live.stream = stream;
   live.mirror = !!lens.front;
+  // The rate the camera actually delivers, which can be below the 60 asked for.
+  const track = stream.getVideoTracks()[0];
+  live.cameraFps = Math.round((track && track.getSettings && track.getSettings().frameRate) || 0);
   if (lens.zoom) setZoom(stream, lens.zoom);
   return true;
 }
@@ -430,13 +441,20 @@ function onVideoFrame(gen) {
 function processFrame() {
   const video = live.video;
   if (!video.videoWidth || video.readyState < 2) return;
+  const t0 = performance.now();
   ensureArtwork(video.videoWidth, video.videoHeight);
   grabFrame();
-  live.art.setParams(liveParams());
+  // The settings reach the preview only when they change: the signature is cheap to compare.
+  const sig = JSON.stringify(live.options.getParams());
+  if (sig !== live.paramSig) {
+    live.paramSig = sig;
+    live.art.setParams(liveParams());
+  }
   const started = performance.now();
   const result = live.art.render((started - live.startedAt) / 1000, 0, { reset: live.firstFrame });
   live.firstFrame = false;
   live.renderMs = result.ms;
+  adaptPreview(performance.now() - t0);
   if (live.starting) {
     live.starting = false;
     setLiveStatus(null);
@@ -445,12 +463,27 @@ function processFrame() {
   const now = performance.now();
   if (now - live.fpsSince >= 500) {
     const fps = (live.frames * 1000) / (now - live.fpsSince);
-    $('live-fps').textContent = fps.toFixed(0) + ' fps · ' + live.renderMs.toFixed(0) + ' ms per frame';
+    $('live-fps').textContent = fps.toFixed(0) + ' fps · ' + live.renderMs.toFixed(0) + ' ms · camera ' +
+      (live.cameraFps || '?') + ' fps · preview ' + PREVIEW_STEPS[live.step] + ' px';
     live.frames = 0;
     live.fpsSince = now;
     // The strip follows the settings, including changes made in the settings sheet.
     updateStrip();
   }
+}
+
+// Keeps the preview fast enough. When the average work per camera frame is over the budget, the next frames are drawn
+// at the next smaller size; when it is well under, the size grows back. Each change needs 30 frames of evidence.
+function adaptPreview(work) {
+  live.workEma = live.workEma === 0 ? work : live.workEma * 0.9 + work * 0.1;
+  live.workFrames++;
+  if (live.workFrames < 30) return;
+  live.workFrames = 0;
+  if (live.workEma > FRAME_BUDGET_MS && live.step < PREVIEW_STEPS.length - 1) live.step++;
+  else if (live.workEma < FRAME_BUDGET_MS / 2 && live.step > 0) live.step--;
+  else return;
+  live.workEma = 0;
+  live.art = null; // rebuilt at the new size on the next frame
 }
 
 // The settings the preview uses: the palette and algorithm in use, with no motion layer.
@@ -460,7 +493,7 @@ function liveParams() {
 
 // Creates the artwork for the camera's size. The data is one frame, replaced on every camera frame.
 function ensureArtwork(vw, vh) {
-  const scale = PREVIEW_SHORT_SIDE / Math.min(vw, vh);
+  const scale = PREVIEW_STEPS[live.step] / Math.min(vw, vh);
   const W = Math.max(16, Math.round((vw * scale) / 2) * 2);
   const H = Math.max(16, Math.round((vh * scale) / 2) * 2);
   if (live.art && W === live.W && H === live.H) return;
@@ -477,6 +510,7 @@ function ensureArtwork(vw, vh) {
     motion: null,
   };
   live.art = createArtwork(live.canvas, live.data);
+  live.paramSig = '';
   const grab = document.createElement('canvas');
   grab.width = W;
   grab.height = H;
@@ -630,7 +664,7 @@ function stopRecording() {
   if (!recorder) return;
   live.recorder = null;
   if (live.hapticRun) {
-    live.hapticRun.stop();
+    live.recTicks = live.hapticRun.stop();
     live.hapticRun = null;
   }
   clearInterval(live.recTimer);
@@ -653,7 +687,8 @@ async function finishRecording(job) {
   setLiveStatus('Saving the clip…', false);
   try {
     const clip = await saveClip({ blob: blob, duration: seconds, width: job.width, height: job.height });
-    setLiveStatus('Saved ' + clip.duration.toFixed(1) + ' s to the clip library.', false, 2500);
+    const haptic = ' Haptics (' + hapticMechanism() + '): ' + live.recTicks + ' ticks sent.';
+    setLiveStatus('Saved ' + clip.duration.toFixed(1) + ' s to the clip library.' + haptic, false, 4000);
   } catch (err) {
     setLiveStatus('The clip could not be saved: ' + (err.message || err), true);
   }

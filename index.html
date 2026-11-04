@@ -541,14 +541,15 @@
       <canvas id="live-canvas"></canvas>
       <div class="live-focus" id="live-focus" hidden></div>
       <p class="live-status" id="live-status" hidden></p>
-      <!-- Settings: the editor's right-hand panel moves in here while the sheet is open (see live.js). -->
-      <div class="live-sheet" id="live-sheet" hidden role="region" aria-label="Settings">
-        <div class="live-sheet-head">
-          <h2>Settings</h2>
-          <button class="live-btn" id="live-sheet-close" type="button" aria-label="Close settings">×</button>
-        </div>
-        <div class="live-sheet-body" id="live-sheet-body"></div>
+    </div>
+    <!-- Settings: the editor's right-hand panel moves in here while the sheet is open (see live.js). It sits under the
+         picture, not over it, so the picture stays in view while the settings change. -->
+    <div class="live-sheet" id="live-sheet" hidden role="region" aria-label="Settings">
+      <div class="live-sheet-head">
+        <h2>Settings</h2>
+        <button class="live-btn" id="live-sheet-close" type="button" aria-label="Close settings">×</button>
       </div>
+      <div class="live-sheet-body" id="live-sheet-body"></div>
     </div>
     <div class="live-fps" id="live-fps">— fps</div>
     <div class="live-bottom">

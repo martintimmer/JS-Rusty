@@ -6,8 +6,9 @@ export function cameraSupported() {
     typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
-// The size and rate asked for. The browser gives the closest mode the camera offers.
-const WANTED = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+// The size and rate asked for: 60 frames a second, for a preview that keeps up. The browser gives the closest mode the
+// camera offers, and some phones give 30 only; live.js shows the rate the camera actually delivers.
+const WANTED = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } };
 
 // The cameras the browser exposes. Their labels are empty until the camera permission has been granted.
 export async function listCameras() {

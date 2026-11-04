@@ -17,6 +17,8 @@ import * as UI from './ui.js';
 import { initPalettePanel, setActivePalette } from './palette-panel.js';
 import { initAlgorithmIcons } from './algorithm-icons.js';
 import { initExportDialog, openExportDialog, refreshExportDialog, setExportMessage, isExportDialogOpen } from './export/export-dialog.js';
+import { initLayout } from './layout.js';
+import { initEmptyStateArt } from './empty-state-art.js';
 
 // Processing boxes: media is fitted inside the box, keeping its aspect ratio.
 const RESOLUTIONS = {
@@ -59,6 +61,8 @@ const img = $('orig-img');
 
 function init() {
   initAlgorithmIcons();
+  initLayout();
+  initEmptyStateArt();
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   // Phones and tablets: 720p by default, and a tap rather than a drop to choose a file.
@@ -107,6 +111,8 @@ function bindUpload() {
     if (input.files && input.files[0]) handleFile(input.files[0]);
     input.value = '';
   });
+  // The Source panel's button opens the same picker; it stays available after a file is loaded.
+  $('btn-open').addEventListener('click', () => input.click());
   // The empty canvas area is the file picker. The keyboard can open it as well.
   $('empty-state').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -575,6 +581,8 @@ function bindZoom() {
   $('zoom-out').addEventListener('click', () => setZoom(state.zoom / 1.25));
   $('zoom-fit').addEventListener('click', () => setZoom(1));
   window.addEventListener('resize', relayout);
+  // The canvas is sized to the stage, which also changes when a sidebar is dragged wider or narrower.
+  if (window.ResizeObserver) new ResizeObserver(() => relayout()).observe($('stage'));
   $('canvas-pair').addEventListener('pointerup', onCanvasTap);
 }
 

@@ -1,5 +1,11 @@
 # JS Rusty
 
+**Live app: https://martintimmer.github.io/JS-Rusty/**
+
+**JS Rusty is a standalone GitHub application, and it is free to use.** Open the link in a modern browser: there is
+nothing to install and no account to create. The source code is in this repository under the Apache License 2.0
+(see [LICENSE](LICENSE)).
+
 JS Rusty turns a photo or a short video into generative artwork drawn with JavaScript. Everything runs
 locally in the browser: no AI models, no servers, no accounts, no network calls while you work.
 The artwork can be shown live, exported as a still or an animation, or packaged as a standalone
@@ -60,10 +66,21 @@ head sets the web-app title, theme colour and icon).
 
 ### 2.2 Viewing the artwork
 
-The toolbar above the canvas shows the zoom level and the size of the rendered canvas in pixels. **Fit** scales the
-artwork to the window. Double-click it (or double-tap on a touch screen) to zoom to 200% and double-click again to
-return to fit. The point you click stays under the pointer while the view zooms. The + and − buttons step through
-the zoom levels.
+The top bar runs across the whole window. It holds the **Artwork**, **Original** and **Split** views, the zoom
+level and the size of the rendered canvas in pixels. **Fit** scales the artwork to the window. Double-click it (or
+double-tap on a touch screen) to zoom to 200% and double-click again to return to fit. The point you click stays
+under the pointer while the view zooms. The + and − buttons step through the zoom levels.
+
+### 2.3 Layout (desktop)
+
+The left sidebar starts with the **Output** card: the resolution and the **Export…** button on one line. Below it
+are **Algorithm** and **Palette**. The **Source** panel is pinned to the bottom of the left sidebar and stays in view
+while the sections above it scroll. It shows the file and its size, has an **Open image or video…** button, and holds
+the sampling rate for video. The right sidebar holds the settings.
+
+Drag the thin bar between a sidebar and the canvas to change that sidebar's width. The arrow keys move the bar when it
+has focus (hold Shift for bigger steps), and double-clicking the bar restores the default width. Widths are kept in
+this browser's local storage. On phones and tablets the menus sit in the dock instead, as described above.
 
 ---
 
@@ -227,7 +244,7 @@ seed, so it is the same in every session and export. Serpentine scan, **Diffusio
 preservation** apply to the three error-diffusion methods only.
 
 **Levels and colour.** Tonal levels (2, 3, 4, 8 or 16) interpolate between paper and ink. A palette replaces them.
-The **Palette** panel, below Tone in the right-hand menu, applies to every algorithm. It lists 13 presets in three
+The **Palette** panel, in the left sidebar below Algorithm, applies to every algorithm. It lists 13 presets in three
 groups, Retro Displays, Retro Gaming and Artistic Photography, plus paper and ink, as compact tiles with a mini line
 icon and a strip of their colours. For the two-colour algorithms, a palette supplies its lightest colour as paper and
 its darkest as ink. The Dither algorithm uses the whole palette. Each card shows its swatches, colour count, description, use and suggested
@@ -258,6 +275,8 @@ icon/                          logo and favicon (SVG and PNG)
 src/
   app.js                       application state; upload, processing, playback, exports, control visibility
   ui.js                        DOM helpers; applies per-algorithm and per-media visibility
+  layout.js                    resizable sidebars: the splitter bars, their widths kept in local storage
+  empty-state-art.js           the line drawing on the empty canvas, coloured from the palette presets
   algorithm-controls.js        which sliders each algorithm and animation type uses (no DOM, testable)
   algorithm-icons.js           the monochrome line-art icons of the algorithm grid
   palette-panel.js             the palette library, its cards and the custom palette editor
@@ -322,7 +341,7 @@ The HTML export wraps the same script in a page that opens from `file://`.
 
 ## 8. Export formats
 
-Every export is made from the export window, opened by the Export button in the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, HTML and JS are not blurred.
+Every export is made from the export window, opened by the Export button in the Output card at the top of the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, HTML and JS are not blurred.
 
 | Format | Content | Notes |
 |---|---|---|

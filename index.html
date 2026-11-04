@@ -17,93 +17,23 @@
 <body>
   <div class="app" id="app">
 
-    <!-- ============ LEFT SIDEBAR ============ -->
-    <aside class="sidebar sidebar-left">
-      <header class="brand">
-        <img class="brand-icon" src="icon/icon.svg" alt="" width="34" height="34" />
+    <!-- ============ TOP BAR ============ -->
+    <header class="topbar" id="topbar">
+      <div class="brand">
+        <img class="brand-icon" src="icon/icon.svg" alt="" width="28" height="28" />
         <div>
           <h1>JS Rusty</h1>
           <p class="muted small">Media to generative JavaScript art</p>
         </div>
-      </header>
+      </div>
 
-      <section class="panel">
-        <h2>Source</h2>
-        <dl class="info" id="source-info">
-          <dt>File</dt><dd id="info-name">—</dd>
-          <dt>Type</dt><dd id="info-type">—</dd>
-          <dt>Source size</dt><dd id="info-size">—</dd>
-          <dt>Duration</dt><dd id="info-duration">—</dd>
-          <dt>Processed</dt><dd id="info-processed">—</dd>
-        </dl>
-      </section>
+      <div class="segmented topbar-view" id="view-mode" role="radiogroup" aria-label="View">
+        <button class="seg active" data-view="rendered" role="radio" aria-checked="true">Artwork</button>
+        <button class="seg" data-view="original" role="radio" aria-checked="false">Original</button>
+        <button class="seg" data-view="split" role="radio" aria-checked="false">Split</button>
+      </div>
 
-      <section class="panel">
-        <h2>Algorithm</h2>
-        <div class="algo-grid" id="algorithm-selector" role="radiogroup" aria-label="Algorithm">
-          <button class="seg active" data-algo="engraving" role="radio" aria-checked="true">Engraving <span>Lines</span></button>
-          <button class="seg" data-algo="stippling" role="radio" aria-checked="false">Stippling <span>Dots</span></button>
-          <button class="seg" data-algo="contour" role="radio" aria-checked="false">Contour <span>Line art</span></button>
-          <button class="seg" data-algo="contour-drawing" role="radio" aria-checked="false">Contour Drawing <span>Hand-drawn</span></button>
-          <button class="seg" data-algo="lowpoly" role="radio" aria-checked="false">Low Poly <span>Facets</span></button>
-          <button class="seg" data-algo="halftone" role="radio" aria-checked="false">Halftone <span>Print</span></button>
-          <button class="seg" data-algo="pencil" role="radio" aria-checked="false">Pencil Sketch <span>Strokes</span></button>
-          <button class="seg" data-algo="waves" role="radio" aria-checked="false">Wave Lines <span>Ridges</span></button>
-          <button class="seg" data-algo="dither" role="radio" aria-checked="false">Dither <span>Tones and colours</span></button>
-          <button class="seg" data-algo="oil" role="radio" aria-checked="false">Oil Paint <span>Kuwahara</span></button>
-          <button class="seg" data-algo="linocut" role="radio" aria-checked="false">Linocut <span>Carved</span></button>
-          <button class="seg" data-algo="ascii" role="radio" aria-checked="false">ASCII <span>Glyphs</span></button>
-          <button class="seg" data-algo="sort" role="radio" aria-checked="false">Pixel Sort <span>Glitch</span></button>
-        </div>
-        <p class="muted small" id="algo-note" hidden></p>
-      </section>
-
-      <section class="panel" id="animation-panel" hidden>
-        <h2>Animation</h2>
-        <div class="segmented vertical" id="animation-selector" role="radiogroup">
-          <button class="seg" data-anim="off" role="radio" aria-checked="false">Off <span>Still picture</span></button>
-          <button class="seg" data-anim="snake" role="radio" aria-checked="false">Snake <span>Lines follow</span></button>
-          <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing rings</span></button>
-          <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Fine float</span></button>
-          <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Travelling wave</span></button>
-        </div>
-        <p class="muted small" id="anim-note"></p>
-      </section>
-
-      <section class="panel">
-        <h2>Processing</h2>
-        <label class="field" data-media="video">
-          <span><span>Sampling rate</span> <em id="fps-val">source</em></span>
-          <span><span>Match source frame rate</span> <input type="checkbox" id="p-fps-auto" checked /></span>
-          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled />
-        </label>
-        <label class="field">
-          <span>Resolution</span>
-          <select id="p-res">
-            <option value="1080" selected>1080p (1920×1080)</option>
-            <option value="720">720p (1280×720)</option>
-            <option value="540">540p (960×540)</option>
-            <option value="360">360p (640×360)</option>
-          </select>
-        </label>
-        <p class="status" id="status" hidden></p>
-      </section>
-
-      <section class="panel">
-        <h2>Export</h2>
-        <button class="btn full btn-primary" id="btn-export-open" disabled>Export…</button>
-        <p class="muted small">Format, output size, blur and a preview are in the export window.</p>
-      </section>
-    </aside>
-
-    <!-- ============ MAIN AREA ============ -->
-    <main class="main">
-      <div class="toolbar">
-        <div class="segmented" id="view-mode" role="radiogroup">
-          <button class="seg active" data-view="rendered">Artwork</button>
-          <button class="seg" data-view="original">Original</button>
-          <button class="seg" data-view="split">Split</button>
-        </div>
+      <div class="topbar-right">
         <div class="zoom">
           <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
           <span id="zoom-val">Fit</span>
@@ -117,24 +47,186 @@
           <span>Elements <b id="perf-elements">—</b></span>
         </div>
       </div>
+    </header>
 
+    <!-- ============ LEFT SIDEBAR ============ -->
+    <aside class="sidebar sidebar-left" id="sidebar-left">
+      <div class="sidebar-scroll">
+
+        <!-- Output: resolution and export on one line, above the algorithms. -->
+        <section class="output-card" id="output-panel" aria-label="Output">
+          <h2>Output</h2>
+          <div class="output-row">
+            <select id="p-res" aria-label="Resolution">
+              <option value="1080" selected>1080p (1920×1080)</option>
+              <option value="720">720p (1280×720)</option>
+              <option value="540">540p (960×540)</option>
+              <option value="360">360p (640×360)</option>
+            </select>
+            <button class="btn btn-primary output-export" id="btn-export-open" type="button" disabled>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Export…</span>
+            </button>
+          </div>
+          <p class="muted small output-hint">Format, output size, blur and a preview are in the export window.</p>
+          <p class="status" id="status" hidden></p>
+        </section>
+
+        <section class="panel">
+          <h2>Algorithm</h2>
+          <div class="algo-grid" id="algorithm-selector" role="radiogroup" aria-label="Algorithm">
+            <button class="seg active" data-algo="engraving" role="radio" aria-checked="true">Engraving <span>Lines</span></button>
+            <button class="seg" data-algo="stippling" role="radio" aria-checked="false">Stippling <span>Dots</span></button>
+            <button class="seg" data-algo="contour" role="radio" aria-checked="false">Contour <span>Line art</span></button>
+            <button class="seg" data-algo="contour-drawing" role="radio" aria-checked="false">Contour Drawing <span>Hand-drawn</span></button>
+            <button class="seg" data-algo="lowpoly" role="radio" aria-checked="false">Low Poly <span>Facets</span></button>
+            <button class="seg" data-algo="halftone" role="radio" aria-checked="false">Halftone <span>Print</span></button>
+            <button class="seg" data-algo="pencil" role="radio" aria-checked="false">Pencil Sketch <span>Strokes</span></button>
+            <button class="seg" data-algo="waves" role="radio" aria-checked="false">Wave Lines <span>Ridges</span></button>
+            <button class="seg" data-algo="dither" role="radio" aria-checked="false">Dither <span>Tones and colours</span></button>
+            <button class="seg" data-algo="oil" role="radio" aria-checked="false">Oil Paint <span>Kuwahara</span></button>
+            <button class="seg" data-algo="linocut" role="radio" aria-checked="false">Linocut <span>Carved</span></button>
+            <button class="seg" data-algo="ascii" role="radio" aria-checked="false">ASCII <span>Glyphs</span></button>
+            <button class="seg" data-algo="sort" role="radio" aria-checked="false">Pixel Sort <span>Glitch</span></button>
+          </div>
+          <p class="muted small" id="algo-note" hidden></p>
+        </section>
+
+        <!-- Palette: moved here from the right-hand menu. It applies to every algorithm. -->
+        <section class="panel" data-panel="palette" data-always>
+          <h2>Palette</h2>
+          <div class="palette-library" id="palette-library">
+            <div class="palette-head">
+              <span class="lbl">Presets</span>
+              <button class="btn small" id="pl-new" type="button">New palette</button>
+            </div>
+            <div id="palette-groups"></div>
+            <div class="palette-editor" id="palette-editor" hidden>
+              <div class="palette-editor-title" id="pe-title">Custom palette</div>
+              <label class="field">
+                <span><span class="lbl">Name</span> <em id="pe-count"></em></span>
+                <input type="text" id="pe-name" maxlength="32" spellcheck="false" />
+              </label>
+              <div id="pe-colours"></div>
+              <div class="palette-actions">
+                <button class="btn small" id="pe-add" type="button">Add colour</button>
+                <button class="btn small" id="pe-save" type="button">Save to session</button>
+                <button class="btn small" id="pe-restore" type="button" hidden>Restore original</button>
+                <button class="btn small" id="pe-restore-presets" type="button">Restore presets</button>
+              </div>
+              <div class="palette-method" id="pe-method" hidden>
+                <span id="pe-method-text"></span>
+                <button class="btn small" id="pe-use-method" type="button">Use</button>
+              </div>
+              <p class="muted small" id="pe-note"></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="animation-panel" hidden>
+          <h2>Animation</h2>
+          <div class="segmented vertical" id="animation-selector" role="radiogroup">
+            <button class="seg" data-anim="off" role="radio" aria-checked="false">Off <span>Still picture</span></button>
+            <button class="seg" data-anim="snake" role="radio" aria-checked="false">Snake <span>Lines follow</span></button>
+            <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing rings</span></button>
+            <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Fine float</span></button>
+            <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Travelling wave</span></button>
+          </div>
+          <p class="muted small" id="anim-note"></p>
+        </section>
+      </div>
+
+      <!-- Source: pinned to the bottom of the left sidebar, always visible on desktop. -->
+      <section class="source-dock" id="source-panel" aria-label="Source">
+        <h2>Source</h2>
+        <button class="btn full" id="btn-open" type="button">Open image or video…</button>
+        <dl class="info" id="source-info">
+          <dt>File</dt><dd id="info-name">—</dd>
+          <dt>Type</dt><dd id="info-type">—</dd>
+          <dt>Source size</dt><dd id="info-size">—</dd>
+          <dt>Duration</dt><dd id="info-duration">—</dd>
+          <dt>Processed</dt><dd id="info-processed">—</dd>
+        </dl>
+        <label class="field" data-media="video">
+          <span><span>Sampling rate</span> <em id="fps-val">source</em></span>
+          <span><span>Match source frame rate</span> <input type="checkbox" id="p-fps-auto" checked /></span>
+          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled />
+        </label>
+      </section>
+    </aside>
+
+    <!-- Desktop only: drag these bars to resize the sidebars (see src/layout.js). -->
+    <div class="splitter splitter-left" id="splitter-left" role="separator" aria-orientation="vertical"
+         aria-label="Resize the left sidebar" tabindex="0"></div>
+
+    <!-- ============ MAIN AREA ============ -->
+    <main class="main">
       <div class="stage" id="stage">
         <div class="stage-inner" id="stage-inner">
           <label class="empty-state" id="empty-state" for="file-input" tabindex="0" role="button" aria-label="Choose an image or video">
-            <svg class="dy-art" viewBox="0 0 240 180" aria-hidden="true" focusable="false">
-              <g class="dy-doc">
-                <path class="dy-ink" d="M98 4H128L144 20V44H98Z"/>
-                <path class="dy-ink" d="M106 22H134M106 30H136M106 36H124"/>
+            <svg class="dy-art" viewBox="0 0 360 240" aria-hidden="true" focusable="false">
+              <defs>
+                <clipPath id="dy-card-clip"><rect x="36" y="22" width="288" height="196" rx="14"/></clipPath>
+              </defs>
+
+              <!-- Frame and viewfinder corners -->
+              <path class="dy-line dy-c0" style="--dy-delay: 0s" pathLength="1"
+                    d="M50 22H310A14 14 0 0 1 324 36V204A14 14 0 0 1 310 218H50A14 14 0 0 1 36 204V36A14 14 0 0 1 50 22Z"/>
+              <path class="dy-line dy-c4" style="--dy-delay: .3s" pathLength="1"
+                    d="M26 40V12H54M334 40V12H306M26 200V228H54M334 200V228H306"/>
+
+              <g clip-path="url(#dy-card-clip)">
+                <!-- Sun: a disc, a ring and rays -->
+                <path class="dy-fill dy-c1" style="--dy-delay: .9s" fill-opacity=".92"
+                      d="M240 84a22 22 0 1 0 44 0a22 22 0 1 0-44 0Z"/>
+                <path class="dy-line dy-c1" style="--dy-delay: 1.2s" pathLength="1"
+                      d="M232 84a30 30 0 1 0 60 0a30 30 0 1 0-60 0Z"/>
+                <path class="dy-line dy-c1" style="--dy-delay: 1.5s" pathLength="1"
+                      d="M300 84H312M289 111L297 119M262 122V134M235 111L227 119M224 84H212M235 57L227 49M262 46V34M289 57L297 49"/>
+
+                <!-- Far hills: a tinted shape with two contour lines -->
+                <path class="dy-fill dy-c2" style="--dy-delay: 1.8s" fill-opacity=".5"
+                      d="M36 150C84 118 128 124 176 146C224 168 262 160 324 124V218H36Z"/>
+                <path class="dy-line dy-c5" style="--dy-delay: 2.1s" pathLength="1"
+                      d="M36 150C84 118 128 124 176 146C224 168 262 160 324 124"/>
+                <path class="dy-line dy-c5" style="--dy-delay: 2.4s" pathLength="1"
+                      d="M36 164C84 132 128 138 176 160C224 182 262 174 324 138"/>
+
+                <!-- Near hills: a darker shape, its contours and hatching -->
+                <path class="dy-fill dy-c3" style="--dy-delay: 2.7s" fill-opacity=".8"
+                      d="M36 188C100 158 150 178 206 186C246 194 286 170 324 180V218H36Z"/>
+                <path class="dy-line dy-c0" style="--dy-delay: 3s" pathLength="1"
+                      d="M36 188C100 158 150 178 206 186C246 194 286 170 324 180"/>
+                <path class="dy-line dy-c0" style="--dy-delay: 3.3s" pathLength="1"
+                      d="M36 202C100 172 150 192 206 200C246 208 286 184 324 194"/>
+                <path class="dy-line dy-c1" style="--dy-delay: 3.7s" pathLength="1"
+                      d="M256 218L290 184M270 218L304 184M284 218L318 184M298 218L324 192"/>
+
+                <!-- A bird, and stipple dots scattered over the sky -->
+                <path class="dy-line dy-c5" style="--dy-delay: 4s" pathLength="1" d="M52 112q9-8 18 0q9-8 18 0"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.2s" cx="60" cy="50" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.3s" cx="76" cy="40" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.4s" cx="94" cy="58" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.5s" cx="116" cy="44" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.6s" cx="132" cy="64" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.7s" cx="150" cy="38" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.8s" cx="168" cy="56" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 4.9s" cx="186" cy="44" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5s" cx="204" cy="66" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.1s" cx="222" cy="46" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.2s" cx="58" cy="84" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.3s" cx="82" cy="96" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.4s" cx="106" cy="80" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.5s" cx="126" cy="102" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.6s" cx="150" cy="88" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.7s" cx="176" cy="98" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.8s" cx="198" cy="84" r="1.6"/>
+                <circle class="dy-dot dy-c4" style="--dy-delay: 5.9s" cx="226" cy="106" r="1.6"/>
               </g>
-              <path class="dy-line" style="--dy-delay: .8s" pathLength="1" d="M38 46H202Q210 46 210 54V156Q210 164 202 164H38Q30 164 30 156V54Q30 46 38 46Z"/>
-              <path class="dy-line" style="--dy-delay: 2.2s" pathLength="1" d="M34 140H206"/>
-              <path class="dy-line" style="--dy-delay: 2.5s" pathLength="1" d="M52 140L94 88L118 112L140 90L188 140"/>
-              <path class="dy-line" style="--dy-delay: 2.9s" pathLength="1" d="M164 70a12 12 0 1 0 24 0a12 12 0 1 0-24 0"/>
-              <path class="dy-line" style="--dy-delay: 3.6s" pathLength="1" d="M104 110l10 8M118 104l8 10M128 118l10 8M142 108l8 10M160 120l12 8"/>
             </svg>
+            <span class="dy-caption"><span class="dy-caption-label">Palette</span> <span class="dy-swatches" id="dy-swatches"></span> <span id="dy-name">Vintage Sepia</span></span>
             <span class="empty-title">Drop your image here</span>
             <span class="empty-sub" id="empty-sub">or click to choose a file · JPG, PNG, WebP, MP4, WebM, MOV (video up to 30 s)</span>
-            <input type="file" id="file-input" accept="image/*,video/*" hidden />
           </label>
           <div class="canvas-pair" id="canvas-pair">
             <div class="pane pane-original" id="pane-original">
@@ -164,6 +256,11 @@
         <span class="time" id="time-dur" data-media="video">0:00.00</span>
       </div>
     </main>
+
+    <!-- Desktop only: drag this bar to resize the right sidebar. -->
+    <div class="splitter splitter-right" id="splitter-right" role="separator" aria-orientation="vertical"
+         aria-label="Resize the right sidebar" tabindex="0"></div>
+
     <!-- Phones and tablets: switches the menus shown below the canvas (CSS shows this only on small screens). -->
     <nav class="dock-tabs" id="dock-tabs" aria-label="Menus">
       <button class="seg" type="button" data-dock="left" aria-pressed="true">Algorithm</button>
@@ -174,7 +271,7 @@
     <!-- ============ RIGHT SIDEBAR ============ -->
     <!-- Each control carries data-ctrl. The app hides controls the current algorithm does not use
          (src/algorithm-controls.js) and relabels them to what they do for that algorithm. -->
-    <aside class="sidebar sidebar-right">
+    <aside class="sidebar sidebar-right" id="sidebar-right">
       <section class="panel" data-panel="tone">
         <h2>Tone</h2>
         <label class="field" data-ctrl="contrast">
@@ -185,36 +282,6 @@
           <span><span class="lbl">Brightness</span> <em id="brightness-val">0</em></span>
           <input type="range" id="r-brightness" min="-100" max="100" value="0" />
         </label>
-      </section>
-
-      <section class="panel" data-panel="palette" data-always>
-        <h2>Palette</h2>
-        <div class="palette-library" id="palette-library">
-          <div class="palette-head">
-            <span class="lbl">Presets</span>
-            <button class="btn small" id="pl-new" type="button">New palette</button>
-          </div>
-          <div id="palette-groups"></div>
-          <div class="palette-editor" id="palette-editor" hidden>
-            <div class="palette-editor-title" id="pe-title">Custom palette</div>
-            <label class="field">
-              <span><span class="lbl">Name</span> <em id="pe-count"></em></span>
-              <input type="text" id="pe-name" maxlength="32" spellcheck="false" />
-            </label>
-            <div id="pe-colours"></div>
-            <div class="palette-actions">
-              <button class="btn small" id="pe-add" type="button">Add colour</button>
-              <button class="btn small" id="pe-save" type="button">Save to session</button>
-              <button class="btn small" id="pe-restore" type="button" hidden>Restore original</button>
-              <button class="btn small" id="pe-restore-presets" type="button">Restore presets</button>
-            </div>
-            <div class="palette-method" id="pe-method" hidden>
-              <span id="pe-method-text"></span>
-              <button class="btn small" id="pe-use-method" type="button">Use</button>
-            </div>
-            <p class="muted small" id="pe-note"></p>
-          </div>
-        </div>
       </section>
 
       <section class="panel" data-panel="rendering">
@@ -429,6 +496,9 @@
         <button class="btn full" id="btn-reset-params">Reset parameters</button>
       </section>
     </aside>
+
+    <!-- Opened by the Open button in the Source panel, the empty canvas, or the keyboard on it. -->
+    <input type="file" id="file-input" accept="image/*,video/*" hidden />
   </div>
 
   <!-- Export window: format, output size and options, and a preview with the blur applied. -->

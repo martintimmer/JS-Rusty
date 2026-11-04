@@ -14,6 +14,10 @@
   --radius: 8px;
   --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Sidebar widths (set by src/layout.js when the user drags a splitter) and the width of a splitter bar. */
+  --left-w: 320px;
+  --right-w: 264px;
+  --split: 8px;
 }
 
 * { box-sizing: border-box; }
@@ -38,33 +42,138 @@ h2 {
 .muted { color: var(--text-muted); }
 .small { font-size: 12px; }
 
+/* ---------- Layout: a top bar, then the left sidebar, the canvas and the right sidebar ---------- */
 .app {
   display: grid;
-  grid-template-columns: 320px 1fr 264px;
+  grid-template-columns: var(--left-w) var(--split) minmax(0, 1fr) var(--split) var(--right-w);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
 }
+@media (max-width: 1100px) {
+  :root { --left-w: 272px; --right-w: 232px; }
+}
+@media (pointer: coarse) {
+  :root { --split: 14px; }
+}
+
+/* ---------- Top bar: its own row across the whole window ---------- */
+.topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.brand p { margin: 2px 0 0; }
+.brand-icon { width: 28px; height: 28px; flex: none; display: block; }
+.topbar .brand { justify-self: start; }
+.topbar-view { justify-self: center; }
+.topbar-right { justify-self: end; display: flex; align-items: center; gap: 18px; min-width: 0; }
 
 /* ---------- Sidebars ---------- */
 .sidebar {
   background: var(--bg-elev);
   overflow-y: auto;
   padding: 20px 16px 32px;
+  min-height: 0;
 }
-.sidebar-left { border-right: 1px solid var(--border); }
-.sidebar-right { border-left: 1px solid var(--border); }
+/* The left sidebar scrolls its sections above a Source panel that stays at the bottom. */
+.sidebar-left {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  min-width: 0;
+}
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 16px 24px;
+}
+.sidebar-right { grid-column: 5; grid-row: 2; min-width: 0; }
 
-.brand { display: flex; gap: 12px; align-items: center; margin-bottom: 22px; }
-.brand p { margin: 2px 0 0; }
-.brand-icon {
-  width: 34px; height: 34px; flex: none; display: block;
+/* Splitter bars between the sidebars and the canvas: drag to resize. Desktop only. */
+.splitter {
+  position: relative;
+  grid-row: 2;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
 }
+.splitter-left { grid-column: 2; }
+.splitter-right { grid-column: 4; }
+.splitter::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+  width: 1px; transform: translateX(-50%); background: var(--border);
+  transition: background .15s, width .15s;
+}
+.splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  width: 4px; height: 40px; margin: -20px 0 0 -2px; border-radius: 2px;
+  background: var(--border-strong); transition: background .15s;
+}
+.splitter:hover::before,
+.splitter:focus-visible::before,
+body.is-resizing .splitter::before { background: var(--accent); width: 2px; }
+.splitter:hover::after,
+.splitter:focus-visible::after,
+body.is-resizing .splitter::after { background: var(--accent); }
+body.is-resizing,
+body.is-resizing * { cursor: col-resize !important; user-select: none; -webkit-user-select: none; }
 
 .panel {
   padding: 16px 0;
   border-top: 1px solid var(--border);
 }
 .panel:first-of-type { border-top: none; padding-top: 0; }
+
+/* Output: resolution and export on one line, above the algorithms. */
+.output-card {
+  margin: 0 0 4px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.output-card h2 { margin-bottom: 10px; }
+.output-row { display: flex; align-items: stretch; gap: 8px; }
+.output-row select {
+  flex: 1 1 auto; min-width: 0; height: 40px;
+  background: var(--bg-elev) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239c978c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+  color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 0 32px 0 12px; font: inherit; font-size: 13px; appearance: none; -webkit-appearance: none;
+  cursor: pointer;
+}
+.output-row select:hover { border-color: #55524a; }
+.output-export {
+  flex: none; height: 40px; margin: 0; padding: 0 14px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap;
+}
+.output-export svg { width: 15px; height: 15px; flex: none; }
+.output-hint { margin: 10px 0 0; line-height: 1.45; }
+.output-card .status { margin-top: 10px; }
+
+/* Source: pinned to the bottom of the left sidebar, always visible on desktop. */
+.source-dock {
+  flex: none;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.source-dock h2 { margin-bottom: 10px; }
+.source-dock .btn.full { margin: 0; }
+.source-dock .info { margin: 12px 0 0; }
+.source-dock .field { margin: 14px 0 0; }
 
 .info { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 12px; }
 .info dt { color: var(--text-muted); }
@@ -199,7 +308,7 @@ input[type=range]:disabled { opacity: .4; }
   .export-layout { grid-template-columns: 1fr; }
 }
 
-/* ---------- Palette library (its own panel, for every algorithm) ---------- */
+/* ---------- Palette library (its own panel, in the left sidebar, for every algorithm) ---------- */
 .btn.small { padding: 4px 9px; font-size: 12px; }
 .palette-library { margin-bottom: 4px; }
 .palette-head {
@@ -265,17 +374,17 @@ input[type=range]:disabled { opacity: .4; }
 .status.error { color: var(--danger); border-left-color: var(--danger); }
 
 /* ---------- Main ---------- */
-.main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; min-height: 0; }
-
-.toolbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 12px 18px; border-bottom: 1px solid var(--border);
+.main {
+  grid-column: 3; grid-row: 2;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0; min-height: 0;
 }
+
 .zoom { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
 .zoom span { min-width: 56px; text-align: center; }
 .zoom .canvas-px { min-width: 0; white-space: nowrap; color: var(--text-muted); }
 .zoom .btn { margin: 0; }
-.perf { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+.perf { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
 .perf b { color: var(--text); font-weight: 500; }
 
 .stage {
@@ -293,30 +402,70 @@ input[type=range]:disabled { opacity: .4; }
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .empty-state:focus-visible { outline: 1px solid var(--accent); outline-offset: -12px; }
-.dy-art { display: block; width: min(300px, 72%); height: auto; color: var(--text-muted); overflow: visible; }
-.dy-ink, .dy-line {
-  fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
+
+/* The drawing on the empty canvas: a landscape in lines and flat colour. Its colours come from the palette
+   presets (src/empty-state-art.js sets --dy-c0 to --dy-c5). Each line draws in (dash offset 1 to 0), holds,
+   then erases, on a 10 s loop; delays stagger the parts. Fills fade in and out, dots pop. */
+.dy-art {
+  /* Shrinks on short windows so the drawing, caption and text still fit (the artwork is 3:2). */
+  display: block; width: min(340px, 78%, max(180px, calc((100vh - 300px) * 1.5))); height: auto; overflow: visible;
+  --dy-c0: #ece9e2; --dy-c1: #d97757; --dy-c2: #9c978c; --dy-c3: #5f5b52; --dy-c4: #d9b98c; --dy-c5: #b8c4c9;
 }
-/* Each line draws in (dash offset 1 to 0), holds, then erases, on a 7 s loop. Delays stagger the parts. */
-.dy-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: dy-draw 7s linear infinite; animation-delay: var(--dy-delay, 0s); }
-/* The page falls into the frame, then fades. */
-.dy-doc { animation: dy-doc 7s ease-in-out infinite; }
-.empty-title { display: block; margin-top: 16px; font-size: 17px; font-weight: 500; color: var(--text); letter-spacing: -0.01em; }
-.empty-sub { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; max-width: 380px; }
-.empty-state:hover .empty-title { color: var(--accent); }
+.dy-c0 { --dy-col: var(--dy-c0); }
+.dy-c1 { --dy-col: var(--dy-c1); }
+.dy-c2 { --dy-col: var(--dy-c2); }
+.dy-c3 { --dy-col: var(--dy-c3); }
+.dy-c4 { --dy-col: var(--dy-c4); }
+.dy-c5 { --dy-col: var(--dy-c5); }
+.dy-line {
+  fill: none; stroke: var(--dy-col, currentColor); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: dy-draw 10s linear infinite; animation-delay: var(--dy-delay, 0s);
+  transition: stroke 1.4s ease;
+}
+.dy-fill {
+  stroke: none; fill: var(--dy-col, currentColor); opacity: 0;
+  animation: dy-fade 10s ease-in-out infinite; animation-delay: var(--dy-delay, 0s);
+  transition: fill 1.4s ease;
+}
+.dy-dot {
+  stroke: none; fill: var(--dy-col, currentColor); transform: scale(0);
+  transform-box: fill-box; transform-origin: center;
+  animation: dy-pop 10s ease-in-out infinite; animation-delay: var(--dy-delay, 0s);
+  transition: fill 1.4s ease;
+}
 @keyframes dy-draw {
-  0% { stroke-dashoffset: 1; }
-  30% { stroke-dashoffset: 0; }
-  84% { stroke-dashoffset: 0; }
+  0%   { stroke-dashoffset: 1; animation-timing-function: cubic-bezier(.45, 0, .25, 1); }
+  34%  { stroke-dashoffset: 0; }
+  80%  { stroke-dashoffset: 0; animation-timing-function: cubic-bezier(.45, 0, .25, 1); }
   100% { stroke-dashoffset: 1; }
 }
-@keyframes dy-doc {
-  0% { opacity: 0; transform: translateY(-26px); }
-  10% { opacity: 1; transform: translateY(0); }
-  18% { opacity: 1; transform: translateY(8px); }
-  22% { opacity: 0; transform: translateY(22px); }
-  100% { opacity: 0; transform: translateY(22px); }
+@keyframes dy-fade {
+  0%, 100% { opacity: 0; }
+  30%, 80% { opacity: 1; }
 }
+@keyframes dy-pop {
+  0%, 100% { transform: scale(0); }
+  8%, 80%  { transform: scale(1); }
+  90%      { transform: scale(0); }
+}
+.dy-caption {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 16px;
+  padding: 4px 12px 4px 10px; border-radius: 999px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  font-size: 11px; color: var(--text-muted); letter-spacing: .02em; white-space: nowrap;
+}
+.dy-caption-label { text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+.dy-caption #dy-name { color: var(--text); }
+.dy-swatches { display: inline-flex; align-items: center; }
+.dy-swatches i {
+  display: block; width: 11px; height: 11px; border-radius: 50%;
+  margin-left: -3px; box-shadow: 0 0 0 1.5px var(--bg-panel);
+}
+.dy-swatches i:first-child { margin-left: 0; }
+.empty-title { display: block; margin-top: 14px; font-size: 17px; font-weight: 500; color: var(--text); letter-spacing: -0.01em; }
+.empty-sub { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; max-width: 380px; }
+.empty-state:hover .empty-title { color: var(--accent); }
 .empty-state:not([hidden]) ~ .canvas-pair { display: none; }
 
 /* Preview: both panes overlay each other; the view mode decides visibility or clip. */
@@ -353,9 +502,8 @@ input[type=range]:disabled { opacity: .4; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* Responsive fallback */
+/* Smaller desktop windows: the perf readout goes, so the top bar fits. */
 @media (max-width: 1100px) {
-  .app { grid-template-columns: 240px 1fr 220px; }
   .perf { display: none; }
 }
 
@@ -366,26 +514,28 @@ input[type=range]:disabled { opacity: .4; }
   .btn, .seg, .field select, .field input[type=text], .field input[type=number] { min-height: 44px; }
   .btn.small { min-height: 36px; }
   .btn.icon { width: 44px; height: 44px; }
+  .output-row select, .output-export { height: 46px; }
   .palette-row .btn { min-width: 40px; min-height: 40px; }
   .palette-row { grid-template-columns: 40px 1fr 40px 40px 40px; }
   .palette-row input[type=color] { width: 40px; height: 40px; }
   .algo-grid .seg { min-height: 104px; }
-  .btn, .seg, .palette-tile, .empty-state { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .btn, .seg, .palette-tile, .empty-state, .output-row select { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   input[type=range] { height: 6px; margin: 12px 0; }
   input[type=range]::-webkit-slider-thumb { width: 26px; height: 26px; }
   input[type=range]::-moz-range-thumb { width: 26px; height: 26px; }
   input[type=checkbox] { width: 22px; height: 22px; }
 }
 
-/* Phones and tablets with a small screen. The artwork always has the top of the screen. The two menus sit in a
-   dock below it (Algorithm, Settings, or hidden), and each menu scrolls inside the dock, so the page itself
-   does not scroll. Hiding the dock gives the canvas the whole screen. */
+/* Phones and tablets with a small screen. The top bar and the artwork have the top of the screen. The two
+   menus sit in a dock below the canvas (Algorithm, Settings, or hidden), and each menu scrolls inside the dock,
+   so the page itself does not scroll. Hiding the dock gives the canvas the whole screen. The splitters and the
+   pinned Source panel are desktop features: here the Source panel is simply the last part of the Algorithm menu. */
 .dock-tabs { display: none; }
 @media (max-width: 900px) {
   body { overflow: hidden; }
   .app {
     display: grid; grid-template-columns: minmax(0, 1fr); height: 100vh; height: 100dvh;
-    grid-template-rows: minmax(0, 1fr) auto minmax(0, var(--dock-h, 0px));
+    grid-template-rows: auto minmax(0, 1fr) auto minmax(0, var(--dock-h, 0px));
     padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
@@ -393,9 +543,16 @@ input[type=range]:disabled { opacity: .4; }
   body[data-dock="left"] .app,
   body[data-dock="right"] .app { --dock-h: min(48dvh, 460px); }
   body[data-dock="closed"] .app { --dock-h: 0px; }
-  .main { grid-row: 1; grid-column: 1; min-height: 0; border-bottom: 0; }
+  .splitter { display: none; }
+  .topbar {
+    grid-column: 1; grid-row: 1; grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; padding: 10px 14px;
+  }
+  .topbar .brand p { display: none; }
+  .topbar-view { justify-self: end; }
+  .topbar-right { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .main { grid-column: 1; grid-row: 2; min-height: 0; }
   .dock-tabs {
-    display: flex; gap: 6px; grid-row: 2; grid-column: 1; padding: 8px 12px;
+    display: flex; gap: 6px; grid-column: 1; grid-row: 3; padding: 8px 12px;
     background: var(--bg-elev); border-top: 1px solid var(--border);
   }
   .dock-tabs .seg {
@@ -404,16 +561,15 @@ input[type=range]:disabled { opacity: .4; }
   }
   .dock-tabs .seg[aria-pressed="true"] { background: var(--bg-elev); border-color: var(--text-muted); color: var(--text); }
   .sidebar-left, .sidebar-right {
-    grid-row: 3; grid-column: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    display: block; grid-column: 1; grid-row: 4; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain; border: 0; padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
   }
+  .sidebar-scroll { flex: none; overflow: visible; padding: 0; }
   body:not([data-dock]) .sidebar-right,
   body[data-dock="left"] .sidebar-right,
   body[data-dock="closed"] .sidebar-left,
   body[data-dock="closed"] .sidebar-right { display: none; }
   body[data-dock="right"] .sidebar-left { display: none; }
-  .perf { display: none; }
-  .toolbar { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
   .stage-inner { padding: 14px; }
   .transport { grid-template-columns: auto auto auto 1fr auto; padding: 10px 14px; }
   .modal-backdrop { padding: 0; align-items: flex-end; }
@@ -423,12 +579,12 @@ input[type=range]:disabled { opacity: .4; }
 /* Notches and home indicators (viewport-fit=cover is set in the page head). */
 @supports (padding: env(safe-area-inset-bottom)) {
   .transport { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-  .sidebar { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .sidebar-right { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 }
 
-/* People who ask for less motion get a still picture. */
+/* People who ask for less motion get the finished drawing, still. */
 @media (prefers-reduced-motion: reduce) {
   .dy-line { animation: none; stroke-dashoffset: 0; }
-  .dy-doc { animation: none; opacity: 0; }
+  .dy-fill { animation: none; opacity: 1; }
+  .dy-dot { animation: none; transform: none; }
 }
-

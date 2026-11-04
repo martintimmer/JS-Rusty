@@ -2,7 +2,7 @@
 
 Nov 4, 2026 · Martin Timmer
 
-Status: a plan. Nothing here is built yet. The same plan is in a Claude Doc, which has the two drawings: https://claude.ai/artifact/TVtuF989A9nvn48yLmjpD6
+Status: built in the code (src/live/). Not yet tested on a phone, so the phone check is the first gate. Decisions taken: HDR is not captured (standard range, in the page); 1080p is the short side; video only, no audio; clips are kept in IndexedDB with a download to Files; the preset is changed in the normal editor only. Not built: zoom, flash and focus controls, and clip thumbnails (the Clips button stands in for the thumbnail). The same plan is in a Claude Doc, which has the two drawings: https://claude.ai/artifact/TVtuF989A9nvn48yLmjpD6
 
 ## Goal and flow
 

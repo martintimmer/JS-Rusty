@@ -85,6 +85,23 @@ this browser's local storage. On phones and tablets the menus sit in the dock in
 
 ---
 
+### 2.4 Live camera
+
+The **Live** button beside Open in the Source panel opens the phone camera full screen, in portrait. The preview is the
+Dither engine at a 480-pixel short side, with the dither method and palette you have chosen. Press and hold the record
+button to record the plain camera picture, up to 10 seconds; the timer stops the recording at 10 seconds.
+
+- The camera needs an https page (the GitHub Pages address) and the browser's camera permission. Video only: no
+  microphone is asked for.
+- Each clip is kept on this device in IndexedDB, in the **Clips** library. It is not uploaded. **Download** saves a copy
+  to Files, which survives Safari's cleanup of unused site data. **Edit** opens the clip in the normal video path, where
+  it is processed at the output size, 1080p by default, with every algorithm and setting.
+- 1080p means the short side is 1080 pixels, so a portrait clip is processed at 1080×1920.
+- Not available in this version: HDR capture, zoom, flash and focus controls. The web camera does not offer them reliably.
+- The plan and its checks are in `docs/live-camera-plan.md`. Nothing has been tested on a phone yet.
+
+---
+
 ## 3. Methodology: the processing pipeline
 
 Every artwork passes through the same pipeline. Stages 1 to 4 run once per source, automatically after

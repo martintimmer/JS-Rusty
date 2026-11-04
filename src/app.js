@@ -19,6 +19,7 @@ import { initAlgorithmIcons } from './algorithm-icons.js';
 import { initExportDialog, openExportDialog, refreshExportDialog, setExportMessage, isExportDialogOpen } from './export/export-dialog.js';
 import { initLayout, initUiScale } from './layout.js';
 import { initEmptyStateArt } from './empty-state-art.js';
+import { initLive, isLiveOpen } from './live/live.js';
 
 // Processing boxes: media is fitted inside the box, keeping its aspect ratio.
 // 'original' fits the source at its own size (no downscale). The other choices are the 16:9 heights.
@@ -64,6 +65,8 @@ function init() {
   initLayout();
   initUiScale();
   initEmptyStateArt();
+  // Live camera: a clip from the library opens here, in the normal video path, at the output size.
+  initLive({ getParams: () => state.params, onOpenClip: (file) => handleFile(file) });
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   // The default output is 1080p on every device. Long clips are made smaller automatically when their frames would
@@ -313,7 +316,8 @@ async function processMedia() {
   // Fit the media inside the chosen resolution box, keeping its aspect ratio.
   const choice = $('p-res').value;
   const box = choice === 'original' ? { w: media.width, h: media.height } : (RESOLUTIONS[choice] || RESOLUTIONS['1080']);
-  const fit = Math.min(box.w / media.width, box.h / media.height);
+  // The output size is set by the short side: 1080p is 1080 pixels high for landscape media and 1080 wide for portrait.
+  const fit = choice === 'original' ? 1 : Math.min(box.w, box.h) / Math.min(media.width, media.height);
   let W = Math.max(16, Math.round((media.width * fit) / 2) * 2);
   let H = Math.max(16, Math.round((media.height * fit) / 2) * 2);
   // Frames at the chosen rate. The rate is never lowered. A clip over MAX_FRAMES is refused. Otherwise, when the frames
@@ -857,7 +861,7 @@ async function exportMp4(s) {
 // ---------- Keyboard ----------
 
 function onKeyDown(e) {
-  if (e.code !== 'Space' || isExportDialogOpen()) return;
+  if (e.code !== 'Space' || isExportDialogOpen() || isLiveOpen()) return;
   const tag = (e.target && e.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'TEXTAREA') return;
   e.preventDefault();

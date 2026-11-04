@@ -140,7 +140,7 @@
       <section class="source-dock" id="source-panel" aria-label="Source">
         <div class="source-head">
           <h2>Source</h2>
-          <button class="btn small" id="btn-open" type="button" title="Open an image or video">Open…</button>
+          <span class="source-buttons"><button class="btn small" id="btn-open" type="button" title="Open an image or video">Open…</button><button class="btn small" id="btn-live" type="button" title="Record from the camera with a live dithered preview">Live</button></span>
         </div>
         <dl class="info" id="source-info">
           <dt>File</dt><dd id="info-name">—</dd>
@@ -523,6 +523,41 @@
 
     <!-- Opened by the Open button in the Source panel, the empty canvas, or the keyboard on it. -->
     <input type="file" id="file-input" accept="image/*,video/*" hidden />
+  </div>
+
+  <!-- Live camera: full-screen portrait camera with a dithered preview. Hold the record button to record up to 10 seconds. -->
+  <div class="live-screen" id="live-screen" hidden role="dialog" aria-modal="true" aria-label="Live camera">
+    <div class="live-top">
+      <button class="live-btn" id="live-close" type="button" aria-label="Close live camera">×</button>
+      <span class="live-preset" id="live-preset">Dither</span>
+      <button class="live-btn" id="live-switch" type="button" aria-label="Switch between rear and front camera">⟲</button>
+    </div>
+    <div class="live-stage">
+      <video id="live-video" class="live-source" playsinline muted autoplay></video>
+      <canvas id="live-canvas"></canvas>
+      <p class="live-status" id="live-status" hidden></p>
+    </div>
+    <div class="live-fps" id="live-fps">— fps</div>
+    <div class="live-bottom">
+      <button class="live-btn" id="live-library" type="button" aria-label="Open the clip library">Clips</button>
+      <button class="live-record" id="live-record" type="button" aria-label="Hold to record, up to 10 seconds"><span class="live-record-dot"></span></button>
+      <span class="live-timer" id="live-timer">10 s max</span>
+    </div>
+  </div>
+
+  <!-- Clip library: clips recorded in live mode, kept on this device. -->
+  <div class="clip-sheet" id="clip-library" hidden role="dialog" aria-modal="true" aria-labelledby="clip-title">
+    <div class="clip-sheet-inner">
+      <div class="modal-head">
+        <h2 class="modal-title" id="clip-title">Clips</h2>
+        <button class="btn icon" id="clip-close" type="button" aria-label="Close the clip library">×</button>
+      </div>
+      <div class="clip-body">
+        <p class="muted small" id="clip-storage"></p>
+        <ul class="clip-list" id="clip-list"></ul>
+        <p class="muted small" id="clip-empty" hidden>No clips yet. Tap Live, then hold the record button.</p>
+      </div>
+    </div>
   </div>
 
   <!-- Export window: format, output size and options, and a preview with the blur applied. -->

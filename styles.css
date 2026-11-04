@@ -669,6 +669,8 @@ input[type=range]:disabled { opacity: .4; }
 /* ---------- Live camera mode: full-screen portrait camera with a dithered preview ---------- */
 .live-screen {
   position: fixed; inset: 0; z-index: 950; display: flex; flex-direction: column;
+  /* The dynamic height follows Safari's toolbar, so the picture reaches the bottom edge with no band left under it. */
+  height: 100vh; height: 100dvh;
   background: #000; color: #f4f1ea;
 }
 /* The buttons float over the picture, as in the camera app: no bars, just a soft shade at the top and the bottom. */
@@ -761,6 +763,13 @@ input[type=range]:disabled { opacity: .4; }
 
 /* Live mode settings: the editor's right-hand panel is shown in a sheet over the picture. The panel keeps its own styles;
    these rules only place it inside the sheet. */
+/* Pulling down on the picture hides the buttons. The shutter stays, so recording still works. */
+.live-screen .live-top, .live-screen .live-strip, .live-screen .live-fps, .live-screen #live-library {
+  transition: opacity .2s ease;
+}
+.chrome-hidden .live-top, .chrome-hidden .live-strip, .chrome-hidden .live-fps, .chrome-hidden #live-library {
+  opacity: 0; pointer-events: none;
+}
 .live-lens[aria-expanded="true"] { background: #f4f1ea; color: #141311; border-color: #f4f1ea; }
 /* The sheet is a band under the picture, not over it: the picture keeps its place while the settings change. The stage
    above it takes the rest of the height. */

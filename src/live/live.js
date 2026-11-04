@@ -6,6 +6,7 @@
 // on this device. Opening a clip hands it to the normal video path in app.js. Nothing is uploaded.
 
 import { createArtwork } from '../rendering/artwork.js';
+import { autoLevels } from '../media/tone.js';
 import { DT_PALETTE_LIBRARY } from '../rendering/dither/palettes.js';
 import { pickMp4Mime, pickWebmMime } from '../export/video-exporter.js';
 import { formatBytes } from '../ui.js';
@@ -93,6 +94,8 @@ const live = {
   rot: false,
   zoom: 1,
   press: null,
+  swipe: null,
+  chromeHidden: false,
   lenses: DEFAULT_LENSES.slice(),
   lensIndex: 0,
   lensesKnown: false,
@@ -131,7 +134,11 @@ export function initLive(options) {
   $('live-sheet-close').addEventListener('click', closeSettings);
   $('live-haptic').addEventListener('click', cycleHaptic);
   $('live-library').addEventListener('click', openLibrary);
-  live.stage.addEventListener('pointerdown', onStageTap);
+  live.stage.addEventListener('pointerdown', onStagePointerDown);
+  live.stage.addEventListener('pointerup', onStagePointerUp);
+  live.stage.addEventListener('pointercancel', () => {
+    live.swipe = null;
+  });
   const record = $('live-record');
   record.addEventListener('pointerdown', onRecordDown);
   record.addEventListener('pointermove', onRecordMove);
@@ -216,6 +223,8 @@ function updateStrip() {
 // It goes back to its place in the editor when settings close.
 function openSettings() {
   if (live.sheetOpen) return;
+  // The settings open with the buttons in view, so the settings button can close them again.
+  setChromeHidden(false);
   const sidebar = $('sidebar-right');
   if (!live.sidebarHome) {
     live.sidebarHome = { parent: sidebar.parentNode, next: sidebar.nextSibling };
@@ -292,6 +301,7 @@ async function openLive() {
   live.frames = 0;
   live.fpsSince = live.startedAt;
   live.zoom = 1;
+  setChromeHidden(false);
   live.lensIndex = 0;
   $('live-screen').hidden = false;
   if (live.options.getParams().dtPalette !== FORCED_PALETTE) live.options.setParam('dtPalette', FORCED_PALETTE);
@@ -456,6 +466,8 @@ function processFrame() {
   const size = drawFrame(video.videoWidth, video.videoHeight);
   ensureArtwork(size.w, size.h);
   grabFrame();
+  // The same tone stretch the editor applies to a clip, so the preview's tones match an editor render of the same settings.
+  autoLevels([live.data.frames, live.data.colour]);
   // The settings reach the preview only when they change: the signature is cheap to compare.
   const sig = JSON.stringify(live.options.getParams());
   if (sig !== live.paramSig) {
@@ -617,6 +629,45 @@ function grabFrame() {
   }
 }
 
+// ---------- Gestures on the picture ----------
+
+// Pulling down on the picture hides the buttons, as in the camera app. Moving up opens the settings. A tap brings the
+// buttons back, or focuses when they are in view. The record button is outside the picture, so it keeps its own gesture.
+const SWIPE_PX = 60;
+
+function onStagePointerDown(e) {
+  if (!live.open || e.button > 0) return;
+  if (e.target.closest && e.target.closest('.live-top, .live-strip, .live-bottom, .live-sheet')) return;
+  live.swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  if (live.stage.setPointerCapture) live.stage.setPointerCapture(e.pointerId);
+}
+
+function onStagePointerUp(e) {
+  const s = live.swipe;
+  live.swipe = null;
+  if (!s || s.id !== e.pointerId) return;
+  const dx = e.clientX - s.x;
+  const dy = e.clientY - s.y;
+  if (Math.abs(dy) >= SWIPE_PX && Math.abs(dy) > Math.abs(dx)) {
+    if (dy > 0) swipeDown();
+    else openSettings();
+    return;
+  }
+  if (Math.hypot(dx, dy) < 12) onStageTap(e);
+}
+
+// Pulling down closes the settings if they are open, and otherwise hides the buttons.
+function swipeDown() {
+  if (live.sheetOpen) closeSettings();
+  else setChromeHidden(true);
+}
+
+// Hides the top bar, the palette strip, the fps line and the Clips button. The shutter stays, so recording still works.
+function setChromeHidden(hidden) {
+  live.chromeHidden = hidden;
+  $('live-screen').classList.toggle('chrome-hidden', hidden);
+}
+
 // ---------- Focus ----------
 
 // Where the picture is drawn inside the canvas in screen pixels. It fills the canvas, and the edges that do not fit are cut.
@@ -637,6 +688,11 @@ function pictureRect() {
 // the settings sheet do not count.
 function onStageTap(e) {
   if (!live.open || !live.stream || !live.W) return;
+  // With the buttons hidden, a tap brings them back and does not focus.
+  if (live.chromeHidden) {
+    setChromeHidden(false);
+    return;
+  }
   if (e.target.closest && e.target.closest('.live-top, .live-strip, .live-bottom, .live-sheet')) return;
   const pic = pictureRect();
   const x = (e.clientX - pic.left) / pic.width;
@@ -869,6 +925,7 @@ function clipItem(clip) {
   item.appendChild(el('span', 'clip-meta', clip.duration.toFixed(1) + ' s · ' + size + formatBytes(clip.size) + ' · ' + when));
   const actions = el('div', 'clip-actions');
   actions.appendChild(actionButton('Edit', () => editClip(clip.id)));
+  if (navigator.share && navigator.canShare) actions.appendChild(actionButton('Share', () => shareClip(clip.id)));
   actions.appendChild(actionButton('Download', () => downloadClip(clip.id)));
   actions.appendChild(actionButton('Delete', () => removeClip(clip.id)));
   item.appendChild(actions);
@@ -883,6 +940,29 @@ async function editClip(id) {
   closeLibrary();
   closeLive(true);
   live.options.onOpenClip(file);
+}
+
+// Opens the share sheet with the clip. On iPhone, "Save Video" puts it in Photos. Where sharing files is not allowed, the
+// clip is downloaded instead. The share must start from the tap, so it is opened straight after the clip is read.
+async function shareClip(id) {
+  const clip = await loadClip(id);
+  if (!clip) return;
+  const file = new File([clip.blob], clip.name, { type: clip.type });
+  let allowed = false;
+  try {
+    allowed = navigator.canShare({ files: [file] });
+  } catch (err) {
+    allowed = false;
+  }
+  if (!allowed) {
+    downloadFile(clip.blob, clip.name);
+    return;
+  }
+  try {
+    await navigator.share({ files: [file], title: clip.name });
+  } catch (err) {
+    if (err.name !== 'AbortError') $('clip-storage').textContent = 'Sharing did not work: ' + (err.name || '') + ' ' + (err.message || '');
+  }
 }
 
 // Saves a Blob as a file, through a temporary link (Safari puts it in Downloads, which Files shows).

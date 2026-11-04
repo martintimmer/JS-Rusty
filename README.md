@@ -113,6 +113,10 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
   when a frame takes too long, and grows back when there is room.
 - The picture fills the screen, and the buttons float over it, as in the camera app. Hold the record button and slide up
   to zoom, up to 5×. The zoom is also in the clip. It is a crop of the picture, so the higher the zoom, the less detail.
+- Gestures on the picture, as in the camera app: pull down to hide the buttons (the shutter stays), tap to bring them back,
+  and move up to open the settings. Pull down again, or press ×, to close the settings.
+- A clip in the **Clips** library has a **Share** button where the browser can share files. On iPhone, the share sheet has
+  **Save Video**, which puts the clip in Photos.
 - **Vibration** (top bar) sets the feel while you hold the record button: Heartbeat, Tick, Countdown (the beat speeds up
   over the last seconds), Pulse, or Off. The cue starts with the press, repeats while you hold, and stops when the
   recording stops. Android vibrates with the Vibration API. iPhone Safari has no such API; its cues use the switch tick of

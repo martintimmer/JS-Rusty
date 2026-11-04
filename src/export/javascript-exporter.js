@@ -8,7 +8,10 @@
 // zeros for video), then the whole block is deflate-compressed and base64-encoded.
 // Motion vectors are stored as Int8 / Uint8 and base64-encoded.
 
-import { DEFAULT_PARAMS, normalizeParams } from '../rendering/core.js';
+import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, resolvePalette } from '../rendering/core.js';
+import { createArtwork } from '../rendering/artwork.js';
+import { dtResolveSettings } from '../rendering/dither/settings.js';
+import { dtPaletteTable } from '../engines/dither.js';
 
 // Concatenation order matters: core primitives first, then engines, then the orchestrator.
 const RUNTIME_MODULES = [
@@ -35,6 +38,8 @@ const RUNTIME_MODULES = [
   '../rendering/dither/jarvis-judice-ninke.js',
   '../rendering/dither/bayer.js',
   '../rendering/dither/blue-noise.js',
+  '../rendering/dither/random-threshold.js',
+  '../rendering/dither/direct.js',
   '../engines/dither.js',
   '../engines/oil.js',
   '../engines/linocut.js',
@@ -128,6 +133,66 @@ export async function encodeData(data, maxWidth) {
   };
 }
 
+// Packed palette indices (Dither). The Dither engine runs for every frame, and each cell's palette index is packed
+// at the smallest bit depth that holds the palette: 1 bit for 2 colours, 2 bits for 3 or 4, 3 bits for 5 to 8, and
+// 4 bits for 9 to 16. The bit stream is compressed with zlib. The standalone file paints the indices with the
+// palette table, so it shows what the app showed, without dithering again at run time.
+export function packedBitsFor(levels) {
+  let bits = 1;
+  while ((1 << bits) < levels) bits++;
+  return bits;
+}
+
+async function encodePacked(data, params) {
+  const p = normalizeParams(params);
+  const opt = dtResolveSettings(p);
+  const bits = packedBitsFor(opt.levels);
+  const art = createArtwork(document.createElement('canvas'), data);
+  art.setParams(p);
+  const frames = [];
+  let gw = 0;
+  let gh = 0;
+  for (let k = 0; k < data.count; k++) {
+    const r = art.render(k / data.fps, 0, { reset: k === 0 });
+    if (!r.lattice) throw new Error('The dither output is not available for export.');
+    gw = r.lattice.gw;
+    gh = r.lattice.gh;
+    frames.push(Uint8Array.from(r.lattice.index));
+  }
+  const cells = gw * gh;
+  const stream = new Uint8Array(Math.ceil((cells * data.count * bits) / 8));
+  let acc = 0;
+  let nacc = 0;
+  let pos = 0;
+  for (const frame of frames) {
+    for (let i = 0; i < cells; i++) {
+      acc = (acc << bits) | frame[i];
+      nacc += bits;
+      while (nacc >= 8) {
+        nacc -= 8;
+        stream[pos++] = (acc >> nacc) & 255;
+      }
+      acc &= (1 << nacc) - 1;
+    }
+  }
+  if (nacc > 0) stream[pos++] = (acc << (8 - nacc)) & 255;
+  const compressed = await deflate(stream);
+  return {
+    mode: 'packed',
+    width: data.width * CANVAS_SCALE,
+    height: data.height * CANVAS_SCALE,
+    gw: gw,
+    gh: gh,
+    bits: bits,
+    levels: opt.levels,
+    count: data.count,
+    fps: data.fps,
+    duration: data.duration,
+    table: bytesToBase64(dtPaletteTable(opt, resolvePalette(p))),
+    frames: bytesToBase64(compressed),
+  };
+}
+
 async function deflate(bytes) {
   if (typeof CompressionStream === 'undefined') {
     throw new Error('This browser cannot compress the export (CompressionStream missing).');
@@ -162,7 +227,32 @@ const DECODER_SOURCE = `
     var stream = new Blob([bytes]).stream().pipeThrough(ds);
     return new Response(stream).arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
   }
+  function decodePacked(d) {
+    return inflateBytes(b64ToBytes(d.frames)).then(function (stream) {
+      var cells = d.gw * d.gh;
+      var bits = d.bits;
+      var mask = (1 << bits) - 1;
+      var frames = new Array(d.count);
+      var acc = 0, nacc = 0, pos = 0;
+      for (var f = 0; f < d.count; f++) {
+        var cur = new Uint8Array(cells);
+        for (var i = 0; i < cells; i++) {
+          while (nacc < bits) {
+            acc = ((acc << 8) | stream[pos++]) & 0xffffff;
+            nacc += 8;
+          }
+          nacc -= bits;
+          cur[i] = (acc >> nacc) & mask;
+        }
+        frames[f] = cur;
+      }
+      return { packed: true, width: d.width, height: d.height, gw: d.gw, gh: d.gh, bits: bits,
+               levels: d.levels, count: d.count, fps: d.fps, duration: d.duration,
+               table: b64ToBytes(d.table), frames: frames };
+    });
+  }
   function decodeArtworkData(d) {
+    if (d.mode === 'packed') return decodePacked(d);
     return inflateBytes(b64ToBytes(d.frames)).then(function (packed) {
       var n = d.frameBytes;
       var frames = new Array(d.count);
@@ -196,6 +286,45 @@ const MOUNT_SOURCE = `
   function loadArtwork() {
     if (!ARTWORK_PROMISE) ARTWORK_PROMISE = decodeArtworkData(ARTWORK_DATA);
     return ARTWORK_PROMISE;
+  }
+  // Paints decoded palette indices. The same picture the app drew: each cell is its palette colour, scaled up with
+  // smoothing off. Nothing is dithered here, and the settings are fixed in the file, so setParams does nothing.
+  function createPackedArtwork(canvas, data) {
+    canvas.width = data.width;
+    canvas.height = data.height;
+    var ctx = canvas.getContext('2d');
+    var cell = document.createElement('canvas');
+    cell.width = data.gw;
+    cell.height = data.gh;
+    var cellCtx = cell.getContext('2d');
+    var img = cellCtx.createImageData(data.gw, data.gh);
+    var pixels = img.data;
+    var table = data.table;
+    var shown = -1;
+    return {
+      canvas: canvas,
+      params: { animation: 'off' },
+      setParams: function () {},
+      render: function (t) {
+        var f = Math.floor(Math.max(0, t) * data.fps + 1e-6);
+        if (f > data.count - 1) f = data.count - 1;
+        if (f === shown) return { ms: 0, elements: 0 };
+        shown = f;
+        var idx = data.frames[f];
+        for (var i = 0; i < idx.length; i++) {
+          var q = idx[i] * 3;
+          var j = i * 4;
+          pixels[j] = table[q];
+          pixels[j + 1] = table[q + 1];
+          pixels[j + 2] = table[q + 2];
+          pixels[j + 3] = 255;
+        }
+        cellCtx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(cell, 0, 0, data.gw, data.gh, 0, 0, data.width, data.height);
+        return { ms: 0, elements: idx.length };
+      }
+    };
   }
   function mount(target, options) {
     var opts = options || {};
@@ -233,7 +362,7 @@ const MOUNT_SOURCE = `
     canvas.addEventListener('click', function () { api.toggle(); });
     loadArtwork().then(function (data) {
       duration = data.duration > 0 ? data.duration : 0;
-      art = createArtwork(canvas, data);
+      art = data.packed ? createPackedArtwork(canvas, data) : createArtwork(canvas, data);
       art.setParams(pendingParams);
       dirty = true;
       reset = true;
@@ -261,8 +390,9 @@ const MOUNT_SOURCE = `
 export async function createStandaloneScript(data, params, options) {
   const opts = options || {};
   const runtime = await buildRuntimeSource();
-  const payload = await encodeData(data, opts.maxWidth);
   const p = normalizeParams(params || DEFAULT_PARAMS);
+  // Dither artwork is packed as palette indices. Every other algorithm ships its frames and renders them at run time.
+  const payload = p.algorithm === 'dither' ? await encodePacked(data, p) : await encodeData(data, opts.maxWidth);
   const title = opts.title || 'JS Rusty artwork';
 
   return [

@@ -1,10 +1,9 @@
 import { dtRunOrdered } from './quantize.js';
 
 // Bayer ordered dithering. The threshold matrix comes from the recursive construction
-// M(2n) = [[4M, 4M+2], [4M+3, 4M+1]], so every entry is a distinct rank of 0..63. Thresholds are
-// (rank + 0.5) / 64, spread evenly over (0, 1). The pattern is regular, which gives the familiar
-// crosshatch texture, and it is the cheapest method here.
-const BAYER_SIZE = 8;
+// M(2n) = [[4M, 4M+2], [4M+3, 4M+1]], so every entry is a distinct rank of 0 .. size*size-1. Thresholds are
+// (rank + 0.5) / (size*size), spread evenly over (0, 1). The pattern is regular, which gives the familiar
+// crosshatch texture. Two sizes are offered: 8 x 8 (finer tones) and 4 x 4 (a coarser, more visible pattern).
 
 function dtBayerMatrix(size) {
   let m = [[0]];
@@ -32,8 +31,13 @@ function dtBayerMatrix(size) {
   return out;
 }
 
-const BAYER_MATRIX = dtBayerMatrix(BAYER_SIZE);
+const BAYER8_MATRIX = dtBayerMatrix(8);
+const BAYER4_MATRIX = dtBayerMatrix(4);
 
 export function ditherBayer(env) {
-  dtRunOrdered(env, BAYER_MATRIX, BAYER_SIZE);
+  dtRunOrdered(env, BAYER8_MATRIX, 8);
+}
+
+export function ditherBayer4(env) {
+  dtRunOrdered(env, BAYER4_MATRIX, 4);
 }

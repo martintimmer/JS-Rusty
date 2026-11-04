@@ -1,6 +1,6 @@
 import {
   CANVAS_SCALE, GRID_CELL, normalizeParams, buildLut, resolvePalette,
-  frameAt, buildGrid,
+  frameAt, buildGrid, buildColourGrid,
 } from './core.js';
 import { renderEngraving } from '../engines/engraving.js';
 import { renderStippling } from '../engines/stippling.js';
@@ -69,6 +69,12 @@ export function createArtwork(canvas, data) {
     tmp: new Float32Array(gw * gh),
     blur: new Float32Array(gw * gh),
   };
+  // Colour planes (0-1 per channel) exist only when the source has colour. The Dither engine reads them in colour mode.
+  if (data.colour) {
+    grid.cr = new Float32Array(gw * gh);
+    grid.cg = new Float32Array(gw * gh);
+    grid.cb = new Float32Array(gw * gh);
+  }
 
   // Per-engine state (buffers and positions) is created on first use. The motion layer has its own.
   const engineState = {};
@@ -97,6 +103,10 @@ export function createArtwork(canvas, data) {
 
     const f = frameAt(data, t || 0);
     buildGrid(data, params, lut, f.i0, f.i1, f.a, grid);
+    // Colour is built only for the Dither engine in colour mode, so the other algorithms pay nothing for it.
+    if (algo === 'dither' && params.grayscale === false && grid.cr) {
+      buildColourGrid(data, params, lut, f.i0, f.i1, f.a, grid);
+    }
 
     const rc = {
       ctx: ctx,
@@ -124,6 +134,7 @@ export function createArtwork(canvas, data) {
     return {
       ms: performance.now() - started,
       elements: rc.elements,
+      lattice: rc.lattice || null,
     };
   }
 

@@ -16,6 +16,15 @@ import { dtChooseLevel, dtNearestColour } from './quantize.js';
 export function dtSeedAccumulator(env) {
   const n = env.n;
   const acc = env.acc;
+  if (env.lr) {
+    // Colour mode: each channel is seeded with the photo's lightness for that channel, threshold included.
+    for (let i = 0; i < n; i++) {
+      acc[i] = env.lr[i];
+      acc[n + i] = env.lg[i];
+      acc[2 * n + i] = env.lb[i];
+    }
+    return;
+  }
   const tone = env.tone;
   const thr = env.thr;
   const shift = env.shift;

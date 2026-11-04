@@ -8,6 +8,10 @@ const VIDEO = (x) => x.mediaKind === 'video';
 const HORIZONTAL = (x) => x.pattern === 'horizontal';
 // Error-diffusion methods only (ordered methods have no error to diffuse).
 const DIFFUSION = (x) => ['atkinson', 'floyd-steinberg', 'jjn'].indexOf(x.dtMethod) >= 0;
+// Ordered and random threshold methods: the threshold pattern, which Dither strength scales.
+const ORDERED = (x) => ['bayer', 'bayer4', 'random', 'blue-noise'].indexOf(x.dtMethod) >= 0;
+// Colour from the photo needs a palette from the library (the Dither algorithm reads these two).
+const PALETTE_CHOSEN = (x) => !!x.dtPalette && x.dtPalette !== 'paper-ink';
 
 function ctl(label, hint, when) {
   return { label: label, hint: hint, when: when || null };
@@ -89,12 +93,16 @@ const SPEC = {
   dither: {
     density: ctl('Tone gain', 'Contrast applied before dithering (higher = more black and white).'),
     edge: EDGE,
-    dtMethod: ctl('Method', 'Error diffusion (Atkinson, Floyd–Steinberg, Jarvis–Judice–Ninke) or ordered (Bayer, blue noise).'),
+    dtMethod: ctl('Method', 'Error diffusion (Atkinson, Floyd–Steinberg, Jarvis–Judice–Ninke) or ordered (Bayer 8×8 and 4×4, random threshold, blue noise), or none (direct quantisation).'),
     dtLevels: ctl('Tonal levels', 'Tones per output (2 = black and white).', PAPER_INK_ONLY),
+    saturation: ctl('Saturation', 'Colour strength of the photo, used when Grayscale is off. 100% is the photograph as it is.', PALETTE_CHOSEN),
+    grayscale: ctl('Grayscale', 'On: palette colours follow the tone (the default). Off: each cell takes the palette colour closest to the photo.', PALETTE_CHOSEN),
     dtThreshold: ctl('Threshold', 'Tone at which a cell turns to ink. Higher = lighter picture.'),
     dtAdaptive: ctl('Adaptive threshold', 'Each area sets its own threshold from its neighbourhood, keeping detail in dark and bright areas. 0 = global threshold.'),
     dtEdge: ctl('Edge preservation', 'Error leaving a strong edge is reduced, so outlines stay crisp (error diffusion only).', DIFFUSION),
-    dtDiffusion: ctl('Diffusion strength', 'How much quantisation error is passed to neighbours.', DIFFUSION),
+    dtDiffusion: Object.assign(ctl('Diffusion strength', 'How much quantisation error is passed to neighbours.', DIFFUSION), {
+      alt: ctl('Dither strength', 'How strongly the threshold pattern is applied. 0% is plain rounding; 100% is the full pattern.', ORDERED),
+    }),
     dtSerpentine: ctl('Serpentine scan', 'Alternates the scan direction on each row, reducing streaks.', DIFFUSION),
     dtGamma: ctl('Gamma', 'Midtone curve before dithering. Above 1 lightens, below 1 darkens.'),
     dtNoise: ctl('Grain', 'Grain added to the tone. It is re-rolled on every frame, so it moves.'),
@@ -159,6 +167,7 @@ export const RENDER_CONTROL_KEYS = [
   'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline',
   'dtMethod', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge',
   'dtDiffusion', 'dtSerpentine', 'dtGamma', 'dtNoise', 'dtInvert', 'dtGrid', 'dtTemporal',
+  'saturation', 'grayscale',
 ];
 
 // Controls every algorithm has.
@@ -190,13 +199,15 @@ export function controlsFor(algorithm, context) {
       out[key] = { visible: true, label: globalEntry.label, hint: globalEntry.hint };
       continue;
     }
-    const algoEntry = own[key];
     const motionEntry = motion[key];
     const motionVisible = !!motionEntry && (!motionEntry.when || motionEntry.when(ctx));
+    // An entry can carry an alternative (alt) with its own label and rule. Dither strength replaces Diffusion
+    // strength for the ordered methods.
+    const algoEntry = own[key] && own[key].alt && own[key].alt.when(ctx) ? own[key].alt : own[key];
     const algoVisible = !!algoEntry && (!algoEntry.when || algoEntry.when(ctx));
     let fallback = null;
-    if (!algoEntry && key === 'detail') fallback = GRID_DETAIL;
-    if (!algoEntry && key === 'edge' && GRID_EDGE_UNUSED.indexOf(algorithm) < 0) fallback = EDGE;
+    if (!own[key] && key === 'detail') fallback = GRID_DETAIL;
+    if (!own[key] && key === 'edge' && GRID_EDGE_UNUSED.indexOf(algorithm) < 0) fallback = EDGE;
     const entry = motionVisible ? motionEntry : (algoEntry || fallback);
     out[key] = {
       visible: motionVisible || algoVisible || !!fallback,

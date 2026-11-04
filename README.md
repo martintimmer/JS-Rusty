@@ -205,7 +205,7 @@ engines draw with `Path2D`.
 | Halftone | `halftone.js` | Hexagonal dot lattice, rotated 15° and jittered, sized by darkness. |
 | Pencil sketch | `pencil.js` | Line integral convolution of a noise texture along the flow field, thresholded against darkness, plus contour outlines and paper grain. |
 | Wave lines | `waves.js` | Rows lifted by darkness, drawn top to bottom with occlusion. |
-| Dither | `dither.js`, `rendering/dither/` | Five methods: Atkinson (default), Floyd–Steinberg and Jarvis–Judice–Ninke error diffusion, Bayer and blue-noise ordered dithering. Two to sixteen tonal levels, or a palette from the library of 13 presets, or your own palette of 2–16 colours. Dither cells from 1 to 16 px. Optional adaptive threshold, edge-preserving diffusion, serpentine scan, gamma, grain, invert and temporal stabilisation. See section 5.1. |
+| Dither | `dither.js`, `rendering/dither/` | Eight methods: Atkinson (default), Floyd–Steinberg and Jarvis–Judice–Ninke error diffusion; Bayer 8 × 8 and 4 × 4, random threshold and blue-noise ordered dithering; and none (direct quantisation). Two to sixteen tonal levels, or a palette from the library of 13 presets, or your own palette of 2–16 colours. Optional colour from the photo (Grayscale off, with a palette), saturation, dither strength, dither cells from 1 to 16 px, adaptive threshold, edge-preserving diffusion, serpentine scan, gamma, grain, invert and temporal stabilisation. See section 5.1. |
 | Oil paint | `oil.js` | Kuwahara filter with summed-area tables: the mean of the lowest-variance quadrant. |
 | Linocut | `linocut.js` | Two-tone: solid where dark, flow-aligned gouge streaks in the middle tones, outlines on edges. |
 | ASCII | `ascii.js` | A glyph per cell, chosen by darkness from a light-to-dark ramp. |
@@ -239,9 +239,20 @@ The Dither engine (`src/engines/dither.js`) runs this pipeline on the analysis g
 
 **Methods.** Atkinson (default; the original look) passes 6/8 of the error to six neighbours. Floyd–Steinberg
 passes all of it to four neighbours. Jarvis–Judice–Ninke passes all of it to twelve neighbours over three rows.
-Bayer uses an 8 × 8 threshold matrix. Blue noise uses a 64 × 64 void-and-cluster tile, built once from a fixed
+Bayer uses an 8 × 8 or a 4 × 4 threshold matrix. Random threshold compares each cell with a fixed pseudo-random
+threshold from a 128 × 128 seeded tile, so the dots are scattered with no regular pattern. None (direct quantisation)
+uses no threshold pattern: each cell takes the nearest level or palette colour, which posterises the picture. Blue noise uses a 64 × 64 void-and-cluster tile, built once from a fixed
 seed, so it is the same in every session and export. Serpentine scan, **Diffusion strength**, and **Edge
-preservation** apply to the three error-diffusion methods only.
+preservation** apply to the three error-diffusion methods only. **Dither strength** is the same slider for the ordered
+methods (Bayer, random threshold and blue noise). It scales the threshold pattern about mid grey, so 0% is plain
+rounding and 100% is the full pattern.
+
+**Colour from the photo.** With **Grayscale** on (the default), a palette chooses its colours by tone, as before.
+Turn Grayscale off and, with a palette chosen, each cell takes the palette colour nearest to the photograph's own
+colour. The photo's colour passes through Contrast, Brightness and **Saturation** first (100% is as photographed,
+0% is grey, 200% doubles the colour). Error diffusion carries the colour error from cell to cell, so mixtures average
+back to the photograph's colours. The colour frames are kept at analysis size, which adds about three quarters of
+the memory the grey frames use.
 
 **Levels and colour.** Tonal levels (2, 3, 4, 8 or 16) interpolate between paper and ink. A palette replaces them.
 The **Palette** panel, in the left sidebar below Algorithm, applies to every algorithm. It lists 13 presets in three
@@ -328,12 +339,20 @@ The standalone exports reuse the **same renderer source**, so the exported artwo
 1. `javascript-exporter.js` fetches the renderer files in dependency order: `core.js`, `flow.js`, the engines
    (with the dither modules before the dither engine), then `artwork.js`.
 2. It strips the `import` and `export` lines and concatenates the files inside one IIFE.
-3. It packs the frames. Each frame is resampled to the chosen width and stored as 8-bit grayscale. The first
+3. For every algorithm except Dither, it packs the frames. Each frame is resampled to the chosen width and stored as 8-bit grayscale. The first
    frame is stored whole, and each later frame is stored as a byte-wise **delta** from the one before, which
    is mostly zeros for video. The block is compressed with `CompressionStream('deflate')` and base64-encoded.
    Motion vectors and energies are embedded the same way.
 4. The output exposes `window.RasterArt.mount(target, options)`. It decodes the data and runs the same renderer
    with the same animation clock. It handles play, pause, seek and parameter changes.
+
+**Dither artwork is packed differently.** The Dither engine runs on every frame at export time, and the palette index of
+each cell is packed at the smallest bit depth that holds the palette: 1 bit for two colours, 2 bits for three or four,
+3 bits for five to eight, and 4 bits for nine to sixteen. The bit stream is compressed with zlib
+(`CompressionStream('deflate')`) and base64-encoded. The page paints the indices with the palette table, so it shows the
+picture the app showed, without dithering again. Dither exports are at the processed size, so the width setting does
+not apply to them. A still with an animation type is exported as its algorithm's picture, without the motion layer,
+because the motion layer is drawn over the canvas rather than into the indices.
 
 The HTML export wraps the same script in a page that opens from `file://`.
 
@@ -345,7 +364,7 @@ Every export is made from the export window, opened by the Export button in the 
 
 | Format | Content | Notes |
 |---|---|---|
-| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px |
+| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices) |
 | Standalone JS | `js-rusty-art.js`, for `<script src>` | Same data; `RasterArt.mount()` |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |
@@ -441,9 +460,10 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 - **Video is limited to 30 s**, and at most 150 frames are analysed. A longer clip (or a higher rate) is sampled
   at a lower rate: at 30 s the maximum is 5 fps.
 - **Video decoding depends on the browser.** Some MOV (HEVC) files cannot be decoded everywhere; the loader says so.
-- **Palettes map tone, not photo colour.** The frames are luminance only, so a palette chooses colours by tone, and
-  hues in the photograph are not carried through.
-- **Oil paint and pixel sort are grayscale**, because the analysis frames store luminance only.
+- **Palettes map tone unless Grayscale is off.** With Grayscale on (the default), a palette chooses colours by tone,
+  and hues in the photograph are not carried through. With Grayscale off, only the Dither algorithm follows the
+  photograph's colour; the other algorithms still use tone.
+- **Oil paint and pixel sort are grayscale**, because they work on luminance only.
 - **Low poly** places points by tone gradient. On textured photos the facets follow texture as well as edges, so
   Feature detail and Facet size matter more than on portraits.
 - **The anisotropic Kuwahara variant** is not implemented.

@@ -14,6 +14,7 @@ export const RANGE_CONTROLS = [
   { id: 'r-density', key: 'density', out: 'density-val', fmt: (v) => String(Math.round(v)) },
   { id: 'r-contrast', key: 'contrast', out: 'contrast-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-brightness', key: 'brightness', out: 'brightness-val', fmt: (v) => (v > 0 ? '+' : '') + Math.round(v) },
+  { id: 'r-saturation', key: 'saturation', out: 'saturation-val', fmt: (v) => Math.round(v) + '%' },
   { id: 'r-edge', key: 'edge', out: 'edge-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-particles', key: 'particles', out: 'particles-val', fmt: (v) => String(Math.round(v)) },
   { id: 'r-anim-count', key: 'animCount', out: 'anim-count-val', fmt: (v) => String(Math.round(v)) },
@@ -59,6 +60,7 @@ export const SELECT_CONTROLS = [
 export const CHECK_CONTROLS = [
   { id: 'r-dt-serpentine', key: 'dtSerpentine' },
   { id: 'r-dt-invert', key: 'dtInvert' },
+  { id: 'r-grayscale', key: 'grayscale' },
 ];
 
 // Text controls: none at present (the palette editor is in palette-panel.js).

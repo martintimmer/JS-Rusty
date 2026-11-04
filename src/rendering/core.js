@@ -39,8 +39,11 @@ export const DEFAULT_PARAMS = {
   lpOutline: 0,
   palette: 'sepia',
   background: 'paper',
+  // Colour for the Dither engine (with a palette). Grayscale on keeps the original tone-mapped look.
+  saturation: 100,           // colour strength, 0-200 (100 = as photographed)
+  grayscale: true,           // true: palettes follow tone. false: palette colours follow the photo's colour
   // Dither engine (src/rendering/dither). These defaults reproduce the original Atkinson, two-tone output.
-  dtMethod: 'atkinson',      // atkinson | floyd-steinberg | jjn | bayer | blue-noise
+  dtMethod: 'atkinson',      // atkinson | floyd-steinberg | jjn | bayer | bayer4 | random | blue-noise | none
   dtLevels: 2,               // tonal levels of the paper-and-ink ramp: 2, 3, 4, 8 or 16
   dtPalette: 'paper-ink',    // paper-ink (uses palette and background), a named colour set, or custom (dtColours)
   dtColours: '',             // custom colour list: 2 to 16 hex colours
@@ -56,7 +59,7 @@ export const DEFAULT_PARAMS = {
   dtTemporal: 0,             // temporal stability, 0-100 (0 = off)
 };
 
-const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal'];
+const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation'];
 
 // Canvas pixels per source-frame pixel. 1 = the canvas matches the processing
 // resolution exactly (1920x1080 at 1080p).
@@ -255,6 +258,32 @@ export function boxBlur(src, tmp, out, gw, gh, r) {
       out[y * gw + x] = sum * inv;
       sum += tmp[clampIndex(y + r + 1, gh) * gw + x] - tmp[clampIndex(y - r, gh) * gw + x];
     }
+  }
+}
+
+// Fills grid.cr, grid.cg and grid.cb (0-1 per channel) with the photo's colour on the analysis grid, after
+// contrast and brightness (the same lookup table as the tone) and saturation. Used by the Dither engine's colour
+// mode only. Saturation 0 is grey, 100 is the photograph as it is, and 200 doubles the colour.
+export function buildColourGrid(data, p, lut, i0, i1, a, grid) {
+  const c0 = data.colour[i0];
+  const c1 = data.colour[i1];
+  const n = grid.gw * grid.gh;
+  const blend = a > 0 && i1 !== i0;
+  const s = clamp(p.saturation, 0, 200) / 100;
+  for (let i = 0; i < n; i++) {
+    const j = 3 * i;
+    let r = lut[c0[j]];
+    let g = lut[c0[j + 1]];
+    let b = lut[c0[j + 2]];
+    if (blend) {
+      r += (lut[c1[j]] - r) * a;
+      g += (lut[c1[j + 1]] - g) * a;
+      b += (lut[c1[j + 2]] - b) * a;
+    }
+    const L = (77 * r + 150 * g + 29 * b) / 256;
+    grid.cr[i] = clamp(L + s * (r - L), 0, 255) / 255;
+    grid.cg[i] = clamp(L + s * (g - L), 0, 255) / 255;
+    grid.cb[i] = clamp(L + s * (b - L), 0, 255) / 255;
   }
 }
 

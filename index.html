@@ -316,8 +316,11 @@
             <option value="atkinson" selected>Atkinson</option>
             <option value="floyd-steinberg">Floyd–Steinberg</option>
             <option value="jjn">Jarvis–Judice–Ninke</option>
-            <option value="bayer">Bayer (ordered)</option>
+            <option value="bayer">Bayer 8×8 (ordered)</option>
+            <option value="bayer4">Bayer 4×4 (ordered)</option>
+            <option value="random">Random threshold</option>
             <option value="blue-noise">Blue noise</option>
+            <option value="none">None (direct quantisation)</option>
           </select>
         </label>
         <label class="field" data-ctrl="dtLevels">
@@ -329,6 +332,13 @@
             <option value="8">8</option>
             <option value="16">16</option>
           </select>
+        </label>
+        <label class="field" data-ctrl="grayscale">
+          <span><span class="lbl">Grayscale</span> <input type="checkbox" id="r-grayscale" checked /></span>
+        </label>
+        <label class="field" data-ctrl="saturation">
+          <span><span class="lbl">Saturation</span> <em id="saturation-val">100%</em></span>
+          <input type="range" id="r-saturation" min="0" max="200" step="1" value="100" />
         </label>
         <label class="field" data-ctrl="dtThreshold">
           <span><span class="lbl">Threshold</span> <em id="dt-threshold-val">50</em></span>

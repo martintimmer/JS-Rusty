@@ -72,11 +72,15 @@ export function dtMixColour(grey, T, colours, prev, hyst) {
 }
 
 // Ordered driver: each cell is quantised against its threshold from a tile. The matrix is square with a
-// power-of-two side (size) and holds thresholds in (0, 1). The tone is shifted by the threshold (env.thr
-// per cell, or env.shift globally), so the threshold control acts the same way for every method.
+// power-of-two side (size) and holds thresholds in (0, 1). Three things shape the threshold:
+//  - Dither strength (env.strength) scales the pattern about one half: 0 is plain rounding, 1 the full matrix.
+//  - The global Threshold, or the adaptive threshold, shifts the tone, as it does for every method.
+//  - Colour mode (env.lr, env.lg, env.lb hold the photo's lightness per channel): the pattern is added to each
+//    channel and the nearest palette colour in OKLab is chosen, so palette colours follow the photo's colour.
 export function dtRunOrdered(env, matrix, size) {
   const gw = env.gw;
   const gh = env.gh;
+  const n = env.n;
   const tone = env.tone;
   const thr = env.thr;
   const shift = env.shift;
@@ -85,15 +89,28 @@ export function dtRunOrdered(env, matrix, size) {
   const colours = env.colours;
   const maxLevel = env.maxLevel;
   const hyst = env.hyst;
-  if (colours) dtEnsureMixTable(colours);
+  const strength = env.strength;
+  const lr = env.lr;
+  const lg = env.lg;
+  const lb = env.lb;
+  const acc = env.acc;
+  if (colours && !lr) dtEnsureMixTable(colours);
   const mask = size - 1;
   for (let y = 0; y < gh; y++) {
     const trow = (y & mask) * size;
     for (let x = 0; x < gw; x++) {
       const i = y * gw + x;
-      const T = matrix[trow + (x & mask)];
-      const z = tone[i] + (thr ? 0.5 - thr[i] : shift);
+      const T = 0.5 + (matrix[trow + (x & mask)] - 0.5) * strength;
       const p = prev ? prev[i] : 255;
+      if (lr) {
+        const d = T - 0.5;
+        acc[i] = lr[i] + d;
+        acc[n + i] = lg[i] + d;
+        acc[2 * n + i] = lb[i] + d;
+        out[i] = dtNearestColour(acc, n, i, colours, p, hyst);
+        continue;
+      }
+      const z = tone[i] + (thr ? 0.5 - thr[i] : shift);
       out[i] = colours
         ? dtMixColour(1 - z, T, colours, p, hyst)
         : dtChooseLevel(z * maxLevel + T - 0.5, maxLevel, p, hyst);

@@ -80,6 +80,29 @@ export function dtToneFill(src, n, opt, gammaLut, tone, seed) {
   }
 }
 
+// Colour mode: the lightness of each channel, after the same steps as the tone (invert, gamma, grain, then gain
+// around mid grey). r, g and b hold 0-1 channel values; the results go to outR, outG and outB.
+export function dtColourFill(r, g, b, n, opt, gammaLut, seed, outR, outG, outB) {
+  const invert = opt.invert;
+  const noise = opt.noise * 0.5;
+  const gain = opt.gain;
+  for (let i = 0; i < n; i++) {
+    const grain = noise > 0 ? (dtCellNoise(i, seed) - 0.5) * noise : 0;
+    outR[i] = dtColourStep(r[i], invert, gammaLut, grain, gain);
+    outG[i] = dtColourStep(g[i], invert, gammaLut, grain, gain);
+    outB[i] = dtColourStep(b[i], invert, gammaLut, grain, gain);
+  }
+}
+
+function dtColourStep(v, invert, gammaLut, grain, gain) {
+  let c = v < 0 ? 0 : (v > 1 ? 1 : v);
+  if (invert) c = 1 - c;
+  if (gammaLut) c = 1 - gammaLut[((1 - c) * 255 + 0.5) | 0];
+  c -= grain;
+  c = (c - 0.5) * gain + 0.5;
+  return c < 0 ? 0 : (c > 1 ? 1 : c);
+}
+
 // Local adaptive threshold. Each cell's threshold moves from the global value theta toward the local
 // mean tone, by `amount`. The move is gated by local contrast (standard deviation over the window):
 // flat areas keep the global threshold, so noise in them is not amplified, while edges and detail

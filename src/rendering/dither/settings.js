@@ -6,7 +6,7 @@ import { dtResolveColourSet } from './palettes.js';
 // palettes.
 
 // Dithering algorithms, in sidebar order.
-export const DT_METHODS = ['atkinson', 'floyd-steinberg', 'jjn', 'bayer', 'blue-noise'];
+export const DT_METHODS = ['atkinson', 'floyd-steinberg', 'jjn', 'bayer', 'bayer4', 'random', 'blue-noise', 'none'];
 // Methods that diffuse error. Serpentine scan, diffusion strength and edge preservation apply only to these.
 export const DT_DIFFUSION_METHODS = ['atkinson', 'floyd-steinberg', 'jjn'];
 // Tonal level counts offered for the paper-and-ink ramp.
@@ -50,6 +50,7 @@ function nearestLevelStep(v) {
 //   strength      diffusion strength, 0-1 (used as a kernel multiplier)
 //   serpentine    alternate scan direction
 //   temporal      temporal stability, 0-1
+//   colourMode    palette colours follow the photo's colour (a palette, with Grayscale off)
 export function dtResolveSettings(p) {
   const method = DT_METHODS.indexOf(p.dtMethod) >= 0 ? p.dtMethod : 'atkinson';
   const colours = dtResolveColourSet(p.dtPalette, p.dtColours);
@@ -72,5 +73,6 @@ export function dtResolveSettings(p) {
     strength: pct(p.dtDiffusion, 100),
     serpentine: p.dtSerpentine === true,
     temporal: pct(p.dtTemporal, 0),
+    colourMode: p.grayscale === false && !!colours,
   };
 }

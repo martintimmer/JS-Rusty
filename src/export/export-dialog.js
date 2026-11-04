@@ -42,6 +42,9 @@ const NOTES = {
   js: 'A standalone module that embeds the renderer and the frames. Blur does not apply.',
 };
 
+// Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
+const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and compressed with zlib. Width and blur do not apply.';
+
 const settings = { format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0 };
 let options = null;
 let open = false;
@@ -164,10 +167,11 @@ function refresh() {
     button.setAttribute('aria-checked', on ? 'true' : 'false');
     button.disabled = !available(format, src) || busy;
   }
+  const packed = !!src && !!src.packed && (settings.format === 'html' || settings.format === 'js');
   for (const field of document.querySelectorAll('[data-export]')) {
-    field.hidden = SHOWN[settings.format].indexOf(field.dataset.export) < 0;
+    field.hidden = SHOWN[settings.format].indexOf(field.dataset.export) < 0 || (packed && field.dataset.export === 'standalone');
   }
-  $('export-note').textContent = NOTES[settings.format];
+  $('export-note').textContent = packed ? PACKED_NOTE : NOTES[settings.format];
   $('export-size').textContent = describe(src);
   $('export-run').disabled = !src || busy || !available(settings.format, src);
   $('export-run').textContent = 'Export ' + FORMATS[settings.format].label;
@@ -180,6 +184,7 @@ function dimsFor(src) {
   const format = settings.format;
   if (format === 'png' || format === 'jpg' || format === 'gif') return outputSize(d, settings.width);
   if (format === 'webm') return { w: d.width, h: d.height };
+  if (src.packed) return { w: d.width, h: d.height };
   return standaloneSize(d, settings.standaloneWidth);
 }
 

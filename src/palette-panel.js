@@ -20,8 +20,11 @@ const METHOD_LABELS = {
   atkinson: 'Atkinson',
   'floyd-steinberg': 'Floyd–Steinberg',
   jjn: 'Jarvis–Judice–Ninke',
-  bayer: 'Bayer',
+  bayer: 'Bayer 8×8',
+  bayer4: 'Bayer 4×4',
+  random: 'Random threshold',
   'blue-noise': 'Blue noise',
+  none: 'None (direct)',
 };
 
 // Mini line-art icons for the palette tiles, drawn on the same 32-unit grid as the algorithm icons.

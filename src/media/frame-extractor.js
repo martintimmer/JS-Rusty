@@ -2,7 +2,7 @@
 // Each sample is drawn twice: at the display size (full detail for rendering) and at
 // half size (for motion estimation, which runs faster on less data).
 
-import { rgbaToGray } from './image-loader.js';
+import { rgbaToGray, rgbaToRgb } from './image-loader.js';
 import { frameLimit } from '../device.js';
 
 
@@ -21,6 +21,7 @@ export async function extractFrames(video, options) {
   const small = makeContext(aw, ah);
   const frames = new Array(count);
   const analysisFrames = new Array(count);
+  const analysisColour = new Array(count);
 
   for (let k = 0; k < count; k++) {
     const t = Math.min(k / rate, Math.max(0, duration - 0.02));
@@ -28,13 +29,16 @@ export async function extractFrames(video, options) {
     full.ctx.drawImage(video, 0, 0, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
     small.ctx.drawImage(video, 0, 0, aw, ah);
-    analysisFrames[k] = rgbaToGray(small.ctx.getImageData(0, 0, aw, ah).data, aw * ah);
+    const smallPx = small.ctx.getImageData(0, 0, aw, ah).data;
+    analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
+    analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
     if (onProgress) onProgress((k + 1) / count);
   }
 
   return {
     frames: frames,
     analysisFrames: analysisFrames,
+    analysisColour: analysisColour,
     analysisWidth: aw,
     analysisHeight: ah,
     count: count,

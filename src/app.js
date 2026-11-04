@@ -333,7 +333,8 @@ async function processMedia() {
     }
 
     // One tone mapping for the whole sequence, applied to display and analysis frames.
-    autoLevels([sequence.frames, sequence.analysisFrames]);
+    // The colour frames get the same tone mapping, so their colours keep the tones of the grey frames.
+    autoLevels([sequence.frames, sequence.analysisFrames, sequence.analysisColour]);
 
     let motion = null;
     if (media.kind === 'video') {
@@ -352,6 +353,7 @@ async function processMedia() {
       duration: sequence.duration,
       count: sequence.count,
       frames: sequence.frames,
+      colour: sequence.analysisColour,
       motion: motion,
     };
     UI.setProgress(0.98, 'Preparing the artwork');
@@ -664,6 +666,8 @@ function exportSource() {
     isVideo: isVideo,
     animated: isVideo || isAnimated(),
     recordSeconds: isVideo ? state.data.duration : 8,
+    // Dither artwork is exported as packed palette indices (see javascript-exporter.js).
+    packed: state.artwork.params.algorithm === 'dither',
   };
 }
 

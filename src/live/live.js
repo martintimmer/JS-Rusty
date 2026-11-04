@@ -19,6 +19,9 @@ import { HAPTIC_SCHEMES, vibrate, startRecordingHaptics, hapticMechanism } from 
 // than FRAME_BUDGET_MS to draw, so the picture keeps its rate (60 frames a second leaves about 16 ms a frame).
 const PREVIEW_STEPS = [480, 400, 320, 256];
 const FRAME_BUDGET_MS = 12;
+// The most the zoom reaches. Holding the record button and sliding up zooms; the zoom crops the picture, so the higher
+// it goes the less detail there is.
+const MAX_ZOOM = 5;
 // Recording stops at this length. A press shorter than the minimum is not kept.
 const RECORD_SECONDS = 10;
 const MIN_RECORD_SECONDS = 0.3;
@@ -85,6 +88,11 @@ const live = {
   cameraFps: 0,
   paramSig: '',
   recTicks: 0,
+  frameCanvas: null,
+  frameCtx: null,
+  rot: false,
+  zoom: 1,
+  press: null,
   lenses: DEFAULT_LENSES.slice(),
   lensIndex: 0,
   lensesKnown: false,
@@ -126,9 +134,10 @@ export function initLive(options) {
   live.stage.addEventListener('pointerdown', onStageTap);
   const record = $('live-record');
   record.addEventListener('pointerdown', onRecordDown);
-  record.addEventListener('pointerup', stopRecording);
-  record.addEventListener('pointercancel', stopRecording);
-  record.addEventListener('lostpointercapture', stopRecording);
+  record.addEventListener('pointermove', onRecordMove);
+  record.addEventListener('pointerup', endPress);
+  record.addEventListener('pointercancel', endPress);
+  record.addEventListener('lostpointercapture', endPress);
   record.addEventListener('contextmenu', (e) => e.preventDefault());
   $('clip-close').addEventListener('click', closeLibrary);
   $('clip-library').addEventListener('click', (e) => {
@@ -282,6 +291,7 @@ async function openLive() {
   live.startedAt = performance.now();
   live.frames = 0;
   live.fpsSince = live.startedAt;
+  live.zoom = 1;
   live.lensIndex = 0;
   $('live-screen').hidden = false;
   if (live.options.getParams().dtPalette !== FORCED_PALETTE) live.options.setParam('dtPalette', FORCED_PALETTE);
@@ -337,6 +347,7 @@ async function switchCamera() {
   if (!live.open || live.recorder || live.switching) return;
   live.switching = true;
   live.lensIndex = (live.lensIndex + 1) % live.lenses.length;
+  live.zoom = 1;
   const lens = live.lenses[live.lensIndex];
   stopCamera(live.stream);
   live.stream = null;
@@ -442,7 +453,8 @@ function processFrame() {
   const video = live.video;
   if (!video.videoWidth || video.readyState < 2) return;
   const t0 = performance.now();
-  ensureArtwork(video.videoWidth, video.videoHeight);
+  const size = drawFrame(video.videoWidth, video.videoHeight);
+  ensureArtwork(size.w, size.h);
   grabFrame();
   // The settings reach the preview only when they change: the signature is cheap to compare.
   const sig = JSON.stringify(live.options.getParams());
@@ -470,6 +482,66 @@ function processFrame() {
     // The strip follows the settings, including changes made in the settings sheet.
     updateStrip();
   }
+}
+
+// Draws the camera frame into the frame canvas: turned upright for a portrait screen, cropped by the zoom, and mirrored
+// for the front camera. The preview and the recording are both taken from this canvas, so both show the zoom.
+// Returns the picture's size in the screen's orientation.
+function drawFrame(vw, vh) {
+  const rot = vw > vh && window.innerHeight > window.innerWidth;
+  live.rot = rot;
+  const ow = rot ? vh : vw;
+  const oh = rot ? vw : vh;
+  if (!live.frameCanvas) {
+    live.frameCanvas = document.createElement('canvas');
+    live.frameCtx = live.frameCanvas.getContext('2d');
+  }
+  const fc = live.frameCanvas;
+  if (fc.width !== ow || fc.height !== oh) {
+    fc.width = ow;
+    fc.height = oh;
+  }
+  const cw = vw / live.zoom;
+  const ch = vh / live.zoom;
+  const sx = (vw - cw) / 2;
+  const sy = (vh - ch) / 2;
+  const ctx = live.frameCtx;
+  if (rot) {
+    // A landscape sensor on a portrait screen is turned a quarter turn clockwise. A mirrored picture is transposed.
+    if (live.mirror) ctx.setTransform(0, 1, 1, 0, 0, 0);
+    else ctx.setTransform(0, 1, -1, 0, ow, 0);
+    ctx.drawImage(live.video, sx, sy, cw, ch, 0, 0, oh, ow);
+  } else {
+    if (live.mirror) ctx.setTransform(-1, 0, 0, 1, ow, 0);
+    else ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(live.video, sx, sy, cw, ch, 0, 0, ow, oh);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return { w: ow, h: oh };
+}
+
+// Sets the zoom. 1× is the whole picture. The label shows while the button is held, and whenever the picture is zoomed.
+function setDigitalZoom(z) {
+  live.zoom = Math.min(MAX_ZOOM, Math.max(1, z));
+  const label = $('live-zoom');
+  label.textContent = live.zoom.toFixed(1) + '×';
+  label.hidden = live.zoom <= 1.001 && !live.press;
+}
+
+// A tap point on the visible picture (0 to 1 across, from the top left), as a point on the camera's own frame: it undoes
+// the turn, the mirror and the crop of the zoom. The camera focuses on that point.
+function tapToSensor(xo, yo) {
+  let u;
+  let v;
+  if (live.rot) {
+    u = yo;
+    v = live.mirror ? xo : 1 - xo;
+  } else {
+    u = live.mirror ? 1 - xo : xo;
+    v = yo;
+  }
+  const edge = (1 - 1 / live.zoom) / 2;
+  return { x: edge + u / live.zoom, y: edge + v / live.zoom };
 }
 
 // Keeps the preview fast enough. When the average work per camera frame is over the budget, the next frames are drawn
@@ -514,23 +586,17 @@ function ensureArtwork(vw, vh) {
   const grab = document.createElement('canvas');
   grab.width = W;
   grab.height = H;
-  live.grabCtx = grab.getContext('2d', { willReadFrequently: true });
+  live.grabCtx = grab.getContext('2d');
   live.firstFrame = true;
 }
 
 // Copies the current camera frame into the artwork's data: display-size luminance and analysis-size colour.
-// The front camera is mirrored, as in a mirror.
+// The picture comes from the frame canvas, which drawFrame has already turned, cropped and mirrored.
 function grabFrame() {
   const W = live.W;
   const H = live.H;
   const ctx = live.grabCtx;
-  ctx.save();
-  if (live.mirror) {
-    ctx.translate(W, 0);
-    ctx.scale(-1, 1);
-  }
-  ctx.drawImage(live.video, 0, 0, W, H);
-  ctx.restore();
+  ctx.drawImage(live.frameCanvas, 0, 0, W, H);
   const rgba = ctx.getImageData(0, 0, W, H).data;
   const luma = live.data.frames[0];
   for (let i = 0, j = 0; i < W * H; i++, j += 4) {
@@ -552,10 +618,10 @@ function grabFrame() {
 
 // ---------- Focus ----------
 
-// Where the picture is drawn inside the canvas (the canvas letterboxes it), in screen pixels.
+// Where the picture is drawn inside the canvas in screen pixels. It fills the canvas, and the edges that do not fit are cut.
 function pictureRect() {
   const rect = live.canvas.getBoundingClientRect();
-  const scale = Math.min(rect.width / live.W, rect.height / live.H);
+  const scale = Math.max(rect.width / live.W, rect.height / live.H);
   const width = live.W * scale;
   const height = live.H * scale;
   return {
@@ -570,14 +636,15 @@ function pictureRect() {
 // the settings sheet do not count.
 function onStageTap(e) {
   if (!live.open || !live.stream || !live.W) return;
-  if (e.target.closest && e.target.closest('.live-sheet')) return;
+  if (e.target.closest && e.target.closest('.live-top, .live-strip, .live-bottom, .live-sheet')) return;
   const pic = pictureRect();
   const x = (e.clientX - pic.left) / pic.width;
   const y = (e.clientY - pic.top) / pic.height;
   if (x < 0 || x > 1 || y < 0 || y > 1) return;
   const stageRect = live.stage.getBoundingClientRect();
   showFocusSquare(e.clientX - stageRect.left, e.clientY - stageRect.top);
-  setFocusPoint(x, y);
+  const sensor = tapToSensor(x, y);
+  setFocusPoint(sensor.x, sensor.y);
 }
 
 function showFocusSquare(x, y) {
@@ -596,7 +663,7 @@ function setFocusPoint(x, y) {
   const track = live.stream && live.stream.getVideoTracks()[0];
   const caps = track && track.getCapabilities ? track.getCapabilities() : {};
   const advanced = {};
-  if ('pointsOfInterest' in caps) advanced.pointsOfInterest = [{ x: live.mirror ? 1 - x : x, y: y }];
+  if ('pointsOfInterest' in caps) advanced.pointsOfInterest = [{ x: x, y: y }];
   if (caps.focusMode && caps.focusMode.indexOf('single-shot') >= 0) advanced.focusMode = 'single-shot';
   if (caps.exposureMode && caps.exposureMode.indexOf('single-shot') >= 0) advanced.exposureMode = 'single-shot';
   if (!Object.keys(advanced).length) {
@@ -614,7 +681,23 @@ function onRecordDown(e) {
   if (e.button !== undefined && e.button !== 0) return;
   e.preventDefault();
   if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+  // Sliding up while the button is held zooms, as in Instagram and Snapchat. The zoom starts from the current one.
+  live.press = { y: e.clientY, zoom: live.zoom };
+  setDigitalZoom(live.zoom);
   startRecording();
+}
+
+function onRecordMove(e) {
+  if (!live.press) return;
+  // Up is positive: each 180 px upward doubles the zoom.
+  setDigitalZoom(live.press.zoom * Math.pow(2, (live.press.y - e.clientY) / 180));
+}
+
+// The finger lifted, or the press was cancelled. The recording stops, and the zoom stays where the finger left it.
+function endPress() {
+  live.press = null;
+  setDigitalZoom(live.zoom);
+  stopRecording();
 }
 
 // Starts recording the camera stream (video only). It stops when the button is released, or at 10 seconds. The
@@ -635,9 +718,12 @@ function startRecording() {
     width: live.video.videoWidth,
     height: live.video.videoHeight,
   };
+  // The clip is the picture from the frame canvas, so the zoom and the turn show in it. The camera stream is the fallback.
+  const canvasStream = live.frameCanvas && live.frameCanvas.captureStream ? live.frameCanvas.captureStream(60) : null;
+  job.stream = canvasStream;
   let recorder;
   try {
-    recorder = new MediaRecorder(live.stream, { mimeType: mime, videoBitsPerSecond: RECORD_BITS_PER_SECOND });
+    recorder = new MediaRecorder(canvasStream || live.stream, { mimeType: mime, videoBitsPerSecond: RECORD_BITS_PER_SECOND });
   } catch (err) {
     setLiveStatus('Recording could not start: ' + (err.message || err), true);
     return;
@@ -678,6 +764,7 @@ function stopRecording() {
 
 // Keeps the recorded clip in the library. A press that was too short is not kept.
 async function finishRecording(job) {
+  if (job.stream) job.stream.getTracks().forEach((track) => track.stop());
   const seconds = Math.min(RECORD_SECONDS, (performance.now() - job.startedAt) / 1000);
   if (seconds < MIN_RECORD_SECONDS || job.chunks.length === 0) {
     setLiveStatus('Hold the button a little longer to record.', false, 2500);

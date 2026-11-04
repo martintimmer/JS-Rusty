@@ -670,10 +670,24 @@ input[type=range]:disabled { opacity: .4; }
 .live-screen {
   position: fixed; inset: 0; z-index: 950; display: flex; flex-direction: column;
   background: #000; color: #f4f1ea;
-  padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
 }
+/* The buttons float over the picture, as in the camera app: no bars, just a soft shade at the top and the bottom. */
 .live-top, .live-bottom {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px;
+  position: absolute; left: 0; right: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 14px;
+}
+.live-top {
+  top: 0; padding-top: calc(10px + env(safe-area-inset-top));
+  background: linear-gradient(rgba(0, 0, 0, .5), rgba(0, 0, 0, 0));
+}
+.live-bottom {
+  bottom: 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); padding-top: 34px;
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .55));
+}
+.live-zoom {
+  position: absolute; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 4; margin: 0; padding: 4px 12px; border-radius: 999px; background: rgba(20, 19, 17, .6);
+  font: 600 14px var(--mono); color: #f4f1ea; pointer-events: none;
 }
 .live-btn {
   appearance: none; flex: none; width: 44px; height: 44px; border-radius: 50%;
@@ -686,7 +700,8 @@ input[type=range]:disabled { opacity: .4; }
   font-size: 12px; color: #d9d4c8; background: rgba(20, 19, 17, .6); padding: 6px 12px; border-radius: 999px;
 }
 .live-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #000; overflow: hidden; }
-.live-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+/* The picture fills the screen; the edges that do not fit are cropped, as in the camera app. */
+.live-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* The camera feed is drawn into the preview, so it stays in the page but is not shown. */
 .live-source { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .live-status {
@@ -695,7 +710,10 @@ input[type=range]:disabled { opacity: .4; }
   background: rgba(20, 19, 17, .85); border-radius: 10px; color: #f4f1ea;
 }
 .live-status.error { color: #f0a094; }
-.live-fps { text-align: center; font: 11px var(--mono); color: #b8b2a6; padding: 4px 0 0; }
+.live-fps {
+  position: absolute; left: 0; right: 0; top: calc(108px + env(safe-area-inset-top)); z-index: 4; pointer-events: none;
+  text-align: center; font: 11px var(--mono); color: #d9d4c8; text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+}
 .live-record {
   flex: none; width: 76px; height: 76px; border-radius: 50%; padding: 0; cursor: pointer;
   border: 4px solid #f4f1ea; background: transparent; display: grid; place-items: center;
@@ -718,6 +736,7 @@ input[type=range]:disabled { opacity: .4; }
 .live-lens:disabled { opacity: .4; cursor: not-allowed; }
 /* A horizontal strip of text-only buttons. It scrolls sideways and keeps every choice one swipe away. */
 .live-strip {
+  position: absolute; left: 0; right: 0; top: calc(64px + env(safe-area-inset-top)); z-index: 4;
   display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
   padding: 0 10px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
 }

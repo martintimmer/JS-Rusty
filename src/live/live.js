@@ -558,9 +558,10 @@ function adaptPreview(work) {
   live.art = null; // rebuilt at the new size on the next frame
 }
 
-// The settings the preview uses: the palette and algorithm in use, with no motion layer.
+// The settings the preview uses: the palette and algorithm in use, with no motion layer. The preview draws the finest
+// dots (a grid of one canvas pixel); the editor keeps its own grid size.
 function liveParams() {
-  return Object.assign({}, live.options.getParams(), { animation: 'off' });
+  return Object.assign({}, live.options.getParams(), { animation: 'off', dtGrid: 1 });
 }
 
 // Creates the artwork for the camera's size. The data is one frame, replaced on every camera frame.
@@ -777,7 +778,12 @@ async function finishRecording(job) {
     const haptic = ' Haptics (' + hapticMechanism() + '): ' + live.recTicks + ' ticks sent.';
     setLiveStatus('Saved ' + clip.duration.toFixed(1) + ' s to the clip library.' + haptic, false, 4000);
   } catch (err) {
-    setLiveStatus('The clip could not be saved: ' + (err.message || err), true);
+    // The library could not keep it, so the clip is downloaded instead and the recording is not lost. The status names the
+    // error, so the cause can be reported.
+    const reason = (err && err.name ? err.name + ': ' : '') + ((err && err.message) || String(err));
+    const ext = job.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+    downloadFile(blob, 'live-' + Date.now() + '.' + ext);
+    setLiveStatus('The clip is not in the library (' + reason + '). It was downloaded instead.', true, 8000);
   }
 }
 
@@ -877,6 +883,18 @@ async function editClip(id) {
   closeLibrary();
   closeLive(true);
   live.options.onOpenClip(file);
+}
+
+// Saves a Blob as a file, through a temporary link (Safari puts it in Downloads, which Files shows).
+function downloadFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 async function downloadClip(id) {

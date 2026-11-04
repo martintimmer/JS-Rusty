@@ -51,6 +51,8 @@ export async function saveClip({ blob, duration, width, height }) {
   const id = now.toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   const ext = blob.type.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
   const stamp = new Date(now).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  // The bytes are stored as an ArrayBuffer, not a Blob: Safari has failed to store some Blobs in IndexedDB.
+  const data = await blob.arrayBuffer();
   const record = {
     id: id,
     name: 'live-' + stamp + '.' + ext,
@@ -60,7 +62,7 @@ export async function saveClip({ blob, duration, width, height }) {
     height: height || 0,
     type: blob.type,
     size: blob.size,
-    blob: blob,
+    data: data,
   };
   await run('readwrite', (store) => store.put(record));
   return metaOf(record);
@@ -72,9 +74,13 @@ export async function listClips() {
   return (all || []).map(metaOf).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-// One clip with its Blob, or undefined.
-export function getClip(id) {
-  return run('readonly', (store) => store.get(id));
+// One clip with its Blob, or undefined. The Blob is rebuilt from the stored bytes. Clips saved with a Blob by an earlier
+// version are read as they are.
+export async function getClip(id) {
+  const record = await run('readonly', (store) => store.get(id));
+  if (!record) return undefined;
+  const blob = record.blob || new Blob([record.data], { type: record.type });
+  return { id: record.id, name: record.name, type: record.type, size: record.size, blob: blob };
 }
 
 export function deleteClip(id) {

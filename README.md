@@ -93,7 +93,8 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
 
 - The camera needs an https page (the GitHub Pages address) and the browser's camera permission. Video only: no
   microphone is asked for.
-- Each clip is kept on this device in IndexedDB, in the **Clips** library. It is not uploaded. **Download** saves a copy
+- Each clip is kept on this device in IndexedDB, in the **Clips** library. It is not uploaded. If the browser refuses to keep
+  a clip, the clip is downloaded instead, and the status line names the error. **Download** saves a copy
   to Files, which survives Safari's cleanup of unused site data. **Edit** opens the clip in the normal video path, where
   it is processed at the output size, 1080p by default, with every algorithm and setting. Recordings often cannot be
   seeked, so when a clip does not seek the frames are read by playing it through once, which takes about as long as the clip.

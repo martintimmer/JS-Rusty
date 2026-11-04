@@ -54,8 +54,9 @@ Serve the folder from a computer on the same network (`python3 -m http.server 80
 workers, so the app runs there as it does on a computer. Tap **Add to Home Screen** to open it full screen (the page
 head sets the web-app title, theme colour and icon).
 
-- On a touch screen the app defaults to 720p processing and keeps at most 60 frames per clip, because every frame
-  is held in memory and iOS limits the memory a tab can use. Both settings can be changed in the sidebar.
+- The default output is 1080p on every device. Every processed frame is held in memory, and iOS limits the memory a tab
+  can use, so on a phone or tablet a long clip is shown at a smaller size when its frames would not fit about 400 MB.
+  Both settings can be changed in the Output card.
 - Choosing a file is by tapping the empty canvas area (drag and drop from Files is not available on iPhone).
   Photos and videos from the photo library open through the system picker. HEIC photos are decoded by Safari.
 - On screens up to 900 px wide the canvas always has the top of the screen. The menus sit in a dock below it: **Algorithm** and **Settings** switch between them, and **Hide** gives the canvas the whole screen. Each menu scrolls inside the dock. Controls are at least 44 px high, and form fields use 16 px text, so Safari does not zoom in on them.
@@ -91,9 +92,10 @@ an upload, and again when the sampling rate or resolution changes. Stages 5 to 7
 
 ### 3.1 Sampling (`frame-extractor.js`, `image-loader.js`)
 
-- **Video.** The source `<video>` is seeked to `k / fps` for each sample `k` (by default the source frame rate, or a custom rate; at most 150
-  samples, or 60 on a phone or tablet). The source rate is measured by playing the clip muted for about a second and reading the presented frame times; where the browser cannot report frames, 30 fps is assumed. A clip of up to 30 s that would need more samples than the limit is sampled at a lower rate, so the whole
-  clip is covered. Each sample is drawn twice: at display size for rendering, and at half
+- **Video.** The source `<video>` is seeked to `k / fps` for each sample `k` (by default the source frame rate, or a custom rate, up to 120 fps;
+  a clip may have up to 5000 frames). The source rate is measured by playing the clip muted for about a second and reading the presented frame times; where the browser cannot report frames, 30 fps is assumed. The frame rate is never lowered, so the artwork plays at the clip's own speed. A clip over 5000 frames is refused.
+  When its frames would not fit the memory budget (about 2 GB on a desktop, 400 MB on a phone), the picture is made
+  smaller, keeping its shape, and the status line says so. Each sample is drawn twice: at display size for rendering, and at half
   size for motion analysis. Both are converted to 8-bit luminance with Rec. 601 weights,
   `(77R + 150G + 29B) >> 8`.
 - **Still image.** The same path with one frame.
@@ -458,8 +460,8 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 ## 12. Limitations
 
 - **Motion is coarse.** Block matching on 16×16 analysis blocks does not capture fine or fast motion.
-- **Video is limited to 30 s**, and at most 150 frames are analysed. A longer clip (or a higher rate) is sampled
-  at a lower rate: at 30 s the maximum is 5 fps.
+- **Video is limited to 5000 frames** at its chosen rate (a 60 fps clip can be about 83 s). The picture is made smaller,
+  not the rate, when the memory budget needs it: 5000 frames at 1080p would need about 18 GB.
 - **Video decoding depends on the browser.** Some MOV (HEVC) files cannot be decoded everywhere; the loader says so.
 - **Palettes map tone unless Grayscale is off.** With Grayscale on (the default), a palette chooses colours by tone,
   and hues in the photograph are not carried through. With Grayscale off, only the Dither algorithm follows the
@@ -470,7 +472,7 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 - **The anisotropic Kuwahara variant** is not implemented.
 - **GIF files are large**, because frames are not compressed between frames.
 - **Standalone exports** need `CompressionStream` and `DecompressionStream` in the viewing browser.
-- **Phones and tablets** process at most 60 frames at 720p by default, and iOS may stop a tab that uses too much
+- **Phones and tablets** keep about 400 MB of processed frames, so long clips are shown smaller, and iOS may stop a tab that uses too much
   memory. WebM recording is not available on iOS.
 
 ---

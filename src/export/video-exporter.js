@@ -60,15 +60,15 @@ export function supportedMp4Codecs() {
 }
 
 // Bit rate for an MP4 of the given frame size and compression level, in bits per second (1 to 40 Mbit/s).
-export function mp4BitsPerSecond(width, height, level) {
+export function mp4BitsPerSecond(width, height, level, fps = RECORD_FPS) {
   const bitsPerPixel = MP4_LEVELS[level] || MP4_LEVELS.medium;
-  const rate = width * height * RECORD_FPS * bitsPerPixel;
+  const rate = width * height * fps * bitsPerPixel;
   return Math.round(Math.min(40000000, Math.max(1000000, rate)));
 }
 
 // Records `canvas` for `seconds` into a file of the MIME type `mime` at `bitsPerSecond`, and resolves with the
 // Blob. `onProgress(fraction)` is called roughly every 100 ms.
-export function recordCanvasVideo(canvas, seconds, mime, bitsPerSecond, onProgress) {
+export function recordCanvasVideo(canvas, seconds, mime, bitsPerSecond, onProgress, fps = RECORD_FPS) {
   return new Promise((resolve, reject) => {
     if (!mime) {
       reject(new Error('This browser cannot record this format (MediaRecorder unsupported).'));
@@ -78,7 +78,7 @@ export function recordCanvasVideo(canvas, seconds, mime, bitsPerSecond, onProgre
       reject(new Error('This browser cannot capture canvas streams.'));
       return;
     }
-    const stream = canvas.captureStream(RECORD_FPS);
+    const stream = canvas.captureStream(fps);
     const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitsPerSecond });
     const chunks = [];
     const started = performance.now();
@@ -104,8 +104,8 @@ export function recordCanvasVideo(canvas, seconds, mime, bitsPerSecond, onProgre
 }
 
 // WebM at the bit rate used before (8 Mbit/s).
-export function recordCanvasWebm(canvas, seconds, onProgress) {
+export function recordCanvasWebm(canvas, seconds, onProgress, fps = RECORD_FPS) {
   const mime = pickWebmMime();
   if (!mime) return Promise.reject(new Error('This browser cannot record WebM (MediaRecorder unsupported).'));
-  return recordCanvasVideo(canvas, seconds, mime, 8000000, onProgress);
+  return recordCanvasVideo(canvas, seconds, mime, 8000000, onProgress, fps);
 }

@@ -7,7 +7,7 @@ import { AnimationController } from './rendering/animation-controller.js';
 import { loadImage, imageToFrames } from './media/image-loader.js';
 import { loadVideo, estimateFrameRate } from './media/video-loader.js';
 import { extractFrames } from './media/frame-extractor.js';
-import { isTouchDevice, frameLimit } from './device.js';
+import { isTouchDevice, frameBudgetBytes, FRAME_BYTES_PER_PIXEL, MAX_FRAMES } from './device.js';
 import { analyseMotion } from './media/motion-analysis.js';
 import { exportStandaloneJs, downloadBlob } from './export/javascript-exporter.js';
 import { exportStandaloneHtml } from './export/html-exporter.js';
@@ -32,7 +32,7 @@ const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 // Sampling rate limits (frames per second) for the custom rate, and the rate assumed when the browser
 // cannot report the source frame rate.
 const FPS_MIN = 1;
-const FPS_MAX = 60;
+const FPS_MAX = 120;
 const DEFAULT_SOURCE_FPS = 30;
 // The Animation choices (snake, pulse, hover, ripple) are hidden in the interface for now. Set this to true
 // to show them again. Animation applies to still images only.
@@ -66,11 +66,12 @@ function init() {
   initEmptyStateArt();
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
-  // Phones and tablets: 720p by default, and a tap rather than a drop to choose a file.
+  // The default output is 1080p on every device. Long clips are made smaller automatically when their frames would
+  // not fit the memory budget, so phones do not need a smaller default. Phones and tablets get a tap to choose a file.
+  $('p-res').value = '1080';
   if (isTouchDevice()) {
-    $('p-res').value = '720';
     document.querySelector('.empty-title').textContent = 'Choose a photo or video';
-    $('empty-sub').textContent = 'or tap to choose a photo or video · JPG, PNG, WebP, MP4, MOV (video up to 30 s)';
+    $('empty-sub').textContent = 'or tap to choose a photo or video · JPG, PNG, WebP, MP4, MOV (video up to 5000 frames)';
   }
   UI.syncRenderControls(state.params);
   UI.setAlgorithm(state.params.algorithm);
@@ -229,6 +230,7 @@ function teardownCurrent() {
   state.controller = null;
   state.artwork = null;
   state.data = null;
+  $('canvas-pair').classList.remove('has-art');
   UI.setText('canvas-px', '');
   if (state.media && state.media.url) URL.revokeObjectURL(state.media.url);
   state.media = null;
@@ -312,8 +314,32 @@ async function processMedia() {
   const choice = $('p-res').value;
   const box = choice === 'original' ? { w: media.width, h: media.height } : (RESOLUTIONS[choice] || RESOLUTIONS['1080']);
   const fit = Math.min(box.w / media.width, box.h / media.height);
-  const W = Math.max(16, Math.round((media.width * fit) / 2) * 2);
-  const H = Math.max(16, Math.round((media.height * fit) / 2) * 2);
+  let W = Math.max(16, Math.round((media.width * fit) / 2) * 2);
+  let H = Math.max(16, Math.round((media.height * fit) / 2) * 2);
+  // Frames at the chosen rate. The rate is never lowered. A clip over MAX_FRAMES is refused. Otherwise, when the frames
+  // would not fit the memory budget, the picture is made smaller (keeping its shape) and the rate is kept.
+  const frameCount = media.kind === 'video' ? Math.max(1, Math.floor(media.duration * fps + 1e-6)) : 1;
+  if (frameCount > MAX_FRAMES) {
+    setStatus('This clip has ' + frameCount + ' frames at ' + fps + ' fps. The limit is ' + MAX_FRAMES +
+      ' frames: use a shorter clip.', true);
+    state.processing = false;
+    updateEnabledState();
+    return;
+  }
+  let sizeNote = '';
+  if (media.kind === 'video') {
+    const bytes = frameCount * W * H * FRAME_BYTES_PER_PIXEL;
+    const budget = frameBudgetBytes();
+    if (bytes > budget) {
+      const fullW = W;
+      const fullH = H;
+      const s = Math.sqrt(budget / bytes);
+      W = Math.max(256, Math.round((W * s) / 2) * 2);
+      H = Math.max(144, Math.round((H * s) / 2) * 2);
+      sizeNote = ' The picture is ' + W + '×' + H + ' instead of ' + fullW + '×' + fullH + ', so that ' +
+        frameCount + ' frames at ' + fps + ' fps fit in memory. The frame rate is kept.';
+    }
+  }
 
   if (state.controller) state.controller.setPlaying(false);
   video.pause();
@@ -362,13 +388,10 @@ async function processMedia() {
     UI.setProgress(0.98, 'Preparing the artwork');
     buildArtwork();
     UI.setProgress(null);
-    UI.setText('info-processed', sequence.count + (sequence.count === 1 ? ' frame' : ' frames') +
-      ' at ' + W + '×' + H);
-    // A long clip may be sampled below the chosen rate, so that it stays within the frame limit.
-    const reduced = media.kind === 'video' && sequence.fps < fps - 1e-6;
-    setStatus(reduced
-      ? 'Artwork ready. The clip is sampled at ' + sequence.fps.toFixed(1) + ' fps to fit ' + frameLimit() + ' frames.'
-      : 'Artwork ready.', false);
+    UI.setText('info-processed', media.kind === 'video'
+      ? sequence.count + ' frames at ' + Math.round(sequence.fps * 100) / 100 + ' fps, ' + W + '×' + H
+      : '1 frame at ' + W + '×' + H);
+    setStatus('Artwork ready.' + sizeNote, false);
     if (media.kind === 'video') playProcessedVideo();
   } catch (err) {
     UI.setProgress(null);
@@ -418,8 +441,12 @@ function buildArtwork() {
   if (state.controller) state.controller.stop();
   const canvas = $('render-canvas');
   state.artwork = createArtwork(canvas, state.data);
+  // Some artwork is now on the canvas, so a new size shows it greyed out under the progress bar.
+  $('canvas-pair').classList.add('has-art');
   UI.setText('canvas-px', state.data.width * CANVAS_SCALE + ' × ' + state.data.height * CANVAS_SCALE + ' px');
   state.artwork.setParams(state.params);
+  // A new size keeps every setting the user chose. Re-showing them in the controls makes sure the panel matches them.
+  UI.syncRenderControls(state.params);
   state.controller = new AnimationController({
     artwork: state.artwork,
     duration: state.media.kind === 'video' ? state.data.duration : 0,
@@ -768,7 +795,7 @@ async function exportWebm() {
     updatePlayButton();
     const blob = await recordCanvasWebm($('render-canvas'), seconds, (f) => {
       setStatus('Recording ' + Math.round(f * 100) + '%…', false);
-    });
+    }, recordFps());
     downloadBlob('js-rusty-animation.webm', blob);
     setStatus('WebM saved (' + UI.formatBytes(blob.size) + ').', false);
   } catch (err) {
@@ -783,6 +810,11 @@ async function exportWebm() {
 
 // MP4 (H.264 or HEVC, whichever the browser records) at the chosen compression level. Like WebM, it records the
 // live canvas, with the animation running.
+// The frame rate of a recording: the clip's own rate for video (up to 60 frames per second), otherwise 30.
+function recordFps() {
+  return state.media && state.media.kind === 'video' && state.data ? Math.min(60, state.data.fps) : 30;
+}
+
 async function exportMp4(s) {
   if (!state.data || state.recording) return;
   const isVideo = state.media.kind === 'video';
@@ -796,7 +828,7 @@ async function exportMp4(s) {
     return;
   }
   const canvas = $('render-canvas');
-  const bits = mp4BitsPerSecond(canvas.width, canvas.height, s.mp4Level);
+  const bits = mp4BitsPerSecond(canvas.width, canvas.height, s.mp4Level, recordFps());
   const codecName = s.mp4Codec === 'hevc' ? 'HEVC' : 'H.264';
   state.recording = true;
   updateEnabledState();
@@ -809,7 +841,7 @@ async function exportMp4(s) {
     updatePlayButton();
     const blob = await recordCanvasVideo(canvas, seconds, mime, bits, (f) => {
       setStatus('Recording MP4 ' + Math.round(f * 100) + '%…', false);
-    });
+    }, recordFps());
     downloadBlob('js-rusty-animation.mp4', blob);
     setStatus('MP4 saved (' + codecName + ', ' + UI.formatBytes(blob.size) + ').', false);
   } catch (err) {

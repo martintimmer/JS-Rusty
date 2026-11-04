@@ -1,6 +1,7 @@
 // Loads a video into the shared <video> element and validates it against MVP limits.
 
-export const MAX_VIDEO_SECONDS = 30;
+// The longest clip accepted when it loads. The frame limit (MAX_FRAMES in device.js) applies once the rate is known.
+export const MAX_VIDEO_SECONDS = 200;
 
 // Estimates the source frame rate. The clip is played muted for up to `seconds` of media time, and the
 // media time of each presented frame is read with requestVideoFrameCallback. The rate is 1 / (median

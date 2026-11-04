@@ -3,18 +3,14 @@
 // half size (for motion estimation, which runs faster on less data).
 
 import { rgbaToGray, rgbaToRgb } from './image-loader.js';
-import { frameLimit } from '../device.js';
 
 
-// Returns { frames, analysisFrames, count, fps, duration }. fps in the result is the rate actually used.
-// A clip that would need more than frameLimit() frames at the chosen rate is sampled at a lower rate
-// instead, so the whole clip is covered (it is not cut short).
+// Returns { frames, analysisFrames, analysisColour, count, fps, duration }. The rate is the one asked for: every
+// frame at that rate is sampled, so the artwork plays at the clip's own speed. The caller limits the frame count.
 export async function extractFrames(video, options) {
   const { fps, width, height, duration, onProgress } = options;
-  const limit = frameLimit();
-  const wanted = Math.floor(duration * fps + 1e-6);
-  const count = Math.max(1, Math.min(wanted, limit));
-  const rate = wanted > limit ? count / duration : fps;
+  const count = Math.max(1, Math.floor(duration * fps + 1e-6));
+  const rate = fps;
   const aw = width / 2;
   const ah = height / 2;
   const full = makeContext(width, height);

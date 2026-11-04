@@ -62,7 +62,7 @@
         <section class="output-card" id="output-panel" aria-label="Output">
           <h2>Output</h2>
           <div class="output-row">
-            <select id="p-res" aria-label="Resolution">
+            <select id="p-res" aria-label="Resolution" autocomplete="off">
               <option value="original">Original</option>
               <option value="1080" selected>1080p</option>
               <option value="720">720p</option>
@@ -155,7 +155,7 @@
         </dl>
         <div class="fps-row" data-media="video">
           <span class="fps-label">Frame rate</span>
-          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled aria-label="Frame rate (frames per second)" />
+          <input type="number" id="p-fps" min="1" max="120" step="any" value="30" disabled aria-label="Frame rate (frames per second)" />
           <em id="fps-val">source</em>
           <label class="fps-auto"><input type="checkbox" id="p-fps-auto" checked /> Auto</label>
         </div>
@@ -233,7 +233,7 @@
             </svg>
             <span class="dy-caption"><span class="dy-caption-label">Palette</span> <span class="dy-swatches" id="dy-swatches"></span> <span id="dy-name">Vintage Sepia</span></span>
             <span class="empty-title">Drop your image here</span>
-            <span class="empty-sub" id="empty-sub">or click to choose a file · JPG, PNG, WebP, MP4, WebM, MOV (video up to 30 s)</span>
+            <span class="empty-sub" id="empty-sub">or click to choose a file · JPG, PNG, WebP, MP4, WebM, MOV (video up to 5000 frames)</span>
           </label>
           <div class="canvas-pair" id="canvas-pair">
             <div class="pane pane-original" id="pane-original">

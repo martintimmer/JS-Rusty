@@ -256,7 +256,17 @@ input[type=range]:disabled { opacity: .4; }
 /* Progress: drawn over the canvas while media loads and is processed. */
 .progress-overlay {
   position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
-  padding: 24px; background: var(--bg);
+  padding: 24px;
+  /* With artwork on the canvas, a new size greys it out and blurs it under the progress bar. */
+  background: rgba(20, 19, 17, .42);
+  -webkit-backdrop-filter: grayscale(1) brightness(.7);
+  backdrop-filter: grayscale(1) brightness(.7);
+}
+/* Before anything is processed there is no artwork to show, so the area is plain. */
+.canvas-pair:not(.has-art) .progress-overlay {
+  background: var(--bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .progress-card { width: min(420px, 100%); }
 .progress-label { font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-bottom: 10px; text-align: center; }

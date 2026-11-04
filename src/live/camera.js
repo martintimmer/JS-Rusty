@@ -46,6 +46,20 @@ export function stopCamera(stream) {
   if (stream) stream.getTracks().forEach((track) => track.stop());
 }
 
+// The zoom range the camera allows, when the browser reports one. Otherwise null.
+export function zoomRange(stream) {
+  const track = stream && stream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  return caps.zoom ? { min: caps.zoom.min, max: caps.zoom.max } : null;
+}
+
+// Sets the zoom of the open camera. Resolves to false when the browser does not allow it.
+export function setZoom(stream, zoom) {
+  const track = stream && stream.getVideoTracks()[0];
+  if (!track || !track.applyConstraints) return Promise.resolve(false);
+  return track.applyConstraints({ advanced: [{ zoom: zoom }] }).then(() => true, () => false);
+}
+
 export function isFrontLabel(label) {
   return /front|user|face|selfie/i.test(label || '');
 }

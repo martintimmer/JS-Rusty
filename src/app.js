@@ -20,6 +20,7 @@ import { initExportDialog, openExportDialog, refreshExportDialog, setExportMessa
 import { initLayout, initUiScale } from './layout.js';
 import { initEmptyStateArt } from './empty-state-art.js';
 import { initLive, isLiveOpen } from './live/live.js';
+import { dtFindPreset } from './rendering/dither/palettes.js';
 
 // Processing boxes: media is fitted inside the box, keeping its aspect ratio.
 // 'original' fits the source at its own size (no downscale). The other choices are the 16:9 heights.
@@ -471,6 +472,12 @@ function buildArtwork() {
 
 // Palette choices and colour edits from the palette panel reach the renderer as ordinary parameters.
 function onPaletteChange(dtPalette, dtColours) {
+  // An 8 bit palette shows its own colours, so Grayscale turns off. Other palettes leave Grayscale as it is.
+  const preset = dtFindPreset(dtPalette);
+  if (preset && preset.category === 'retro-gaming' && state.params.grayscale !== false) {
+    onParamChange('grayscale', false);
+    UI.syncRenderControls(state.params);
+  }
   onParamChange('dtPalette', dtPalette);
   onParamChange('dtColours', dtColours);
 }
@@ -512,8 +519,13 @@ function liveSetParam(key, value) {
     setAlgorithm(value);
     return;
   }
+  // A palette from the strip goes through the same path as one from the palette panel, so 8 bit palettes turn Grayscale off.
+  if (key === 'dtPalette') {
+    onPaletteChange(value, '');
+    setActivePalette(state.params.dtPalette, state.params.dtColours);
+    return;
+  }
   onParamChange(key, value);
-  if (key === 'dtPalette') setActivePalette(state.params.dtPalette, state.params.dtColours);
 }
 
 function setAlgorithm(algo) {

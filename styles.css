@@ -740,6 +740,31 @@ input[type=range]:disabled { opacity: .4; }
   to { transform: scale(1); opacity: 1; }
 }
 
+/* Live mode settings: the editor's right-hand panel is shown in a sheet over the picture. The panel keeps its own styles;
+   these rules only place it inside the sheet. */
+.live-lens[aria-expanded="true"] { background: #f4f1ea; color: #141311; border-color: #f4f1ea; }
+.live-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; max-height: 78%; display: flex; flex-direction: column;
+  background: var(--bg-elev); color: var(--text); border-radius: 14px 14px 0 0; border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, .35);
+}
+.live-sheet-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px 8px 16px; border-bottom: 1px solid var(--border);
+}
+.live-sheet-head h2 { margin: 0; font-size: 15px; }
+.live-sheet-head .live-btn { background: var(--bg-panel); color: var(--text); border-color: var(--border-strong); }
+.live-sheet-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+}
+/* The right-hand panel, moved into the sheet: it is shown here whatever the editor's layout or dock says. */
+.in-live-sheet {
+  display: block !important; position: static !important; grid-column: auto !important; grid-row: auto !important;
+  width: auto !important; min-width: 0 !important; height: auto !important; max-height: none !important;
+  overflow: visible !important; border: 0 !important; background: transparent !important; padding: 8px 0 !important;
+}
+
 /* ---------- Clip library (clips recorded in live mode, kept on this device) ---------- */
 .clip-sheet {
   position: fixed; inset: 0; z-index: 980; display: flex; align-items: flex-end; justify-content: center;

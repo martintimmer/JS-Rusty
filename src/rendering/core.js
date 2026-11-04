@@ -42,7 +42,9 @@ export const DEFAULT_PARAMS = {
   // Colour for the Dither engine (with a palette). Grayscale on keeps the original tone-mapped look.
   dtSeed: 1,                 // random threshold pattern, 1-99: the same seed always gives the same scatter
   saturation: 100,           // colour strength, 0-200 (100 = as photographed)
-  grayscale: true,           // true: palettes follow tone. false: palette colours follow the photo's colour
+  // Grayscale on: palettes follow the photo's tone. Off: palette colours follow its colour. It is off by default, with
+  // PICO-8 (an 8 bit palette), and choosing an 8 bit palette turns it off (app.js onPaletteChange).
+  grayscale: false,
   // Dither engine (src/rendering/dither). These defaults reproduce the original Atkinson, two-tone output.
   dtMethod: 'atkinson',      // atkinson | floyd-steinberg | jjn | bayer | bayer4 | random | blue-noise | none
   dtLevels: 2,               // tonal levels of the paper-and-ink ramp: 2, 3, 4, 8 or 16

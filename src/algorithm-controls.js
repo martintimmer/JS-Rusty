@@ -97,7 +97,7 @@ const SPEC = {
     dtSeed: ctl('Seed', 'The scatter of random threshold dithering. Each seed gives a different pattern; the same seed always gives the same one.', RANDOM),
     dtLevels: ctl('Tonal levels', 'Tones per output (2 = black and white).', PAPER_INK_ONLY),
     saturation: ctl('Saturation', 'Colour strength of the photo, used when Grayscale is off and a palette is chosen. 100% is as photographed.'),
-    grayscale: ctl('Grayscale', 'On: palette colours follow the tone (the default). Off: each cell takes the palette colour closest to the photo. Needs a palette.'),
+    grayscale: ctl('Grayscale', 'On: palette colours follow the tone. Off: each cell takes the palette colour closest to the photo. Needs a palette. Off by default; choosing an 8 bit palette turns it off.'),
     dtThreshold: ctl('Threshold', 'Tone at which a cell turns to ink. Higher = lighter picture.'),
     dtAdaptive: ctl('Adaptive threshold', 'Each area sets its own threshold from its neighbourhood, keeping detail in dark and bright areas. 0 = global threshold.'),
     dtEdge: ctl('Edge preservation', 'Error leaving a strong edge is reduced, so outlines stay crisp (error diffusion only).', DIFFUSION),

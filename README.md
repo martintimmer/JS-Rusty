@@ -99,11 +99,20 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
 - 1080p means the short side is 1080 pixels, so a portrait clip is processed at 1080×1920.
 - The strip under the top bar changes the palette and the algorithm, with the same settings as the editor. Live mode opens
   with the six-colour Apple II palette; Classic Mac OS is the next chip.
-- The lens button cycles through the lenses the browser exposes. Chrome on Android usually lists ultra-wide and
-  telephoto lenses; iPhone Safari often exposes only the rear and front cameras.
+- The lens button cycles through every camera the browser lists: each rear lens, then the front camera. Chrome on Android
+  usually lists the ultra-wide and telephoto lenses separately. Where the browser lists one rear camera but allows zoom,
+  the button offers 0.5×, 1×, 2× and 3× on that camera. iPhone Safari does not list its ultra-wide and telephoto lenses
+  as separate cameras, and often does not allow zoom, so there the button cycles the rear and front cameras only. This
+  is not yet tested on an iPhone.
+- **Settings** (top bar) opens the editor's controls over the picture, the same Tone, Dither and other panels, so a change
+  shows on the preview at once. **×** closes the sheet.
+- **Vibration** (top bar) sets the feel while you hold the record button: Heartbeat, Tick, Countdown (the beat speeds up
+  over the last seconds), Pulse, or Off. The cue starts with the press, repeats while you hold, and stops when the
+  recording stops. Android vibrates with the Vibration API. iPhone Safari has no such API; its cues use the switch tick of
+  iOS 18 and later. The first tick of each cue is made inside the tap; later ticks are timers, which may not reach the phone.
 - A tap on the picture shows a focus square. The camera is focused and exposed at that point only where the browser lets
   the page set it.
-- Not available in this version: HDR capture, and zoom or flash controls.
+- Not available in this version: HDR capture, and flash. Zoom appears only as lenses, and only where the browser allows it.
 - The plan and its checks are in `docs/live-camera-plan.md`. Nothing has been tested on a phone yet.
 
 ---
@@ -272,7 +281,8 @@ preservation** apply to the three error-diffusion methods only. **Dither strengt
 methods (Bayer, random threshold and blue noise). It scales the threshold pattern about mid grey, so 0% is plain
 rounding and 100% is the full pattern.
 
-**Colour from the photo.** With **Grayscale** on (the default), a palette chooses its colours by tone, as before.
+**Colour from the photo.** With **Grayscale** on, a palette chooses its colours by tone, as before. Grayscale is off by
+default, with PICO-8 (an 8 bit palette), and choosing any 8 bit palette turns it off.
 Turn Grayscale off and, with a palette chosen, each cell takes the palette colour nearest to the photograph's own
 colour. The photo's colour passes through Contrast, Brightness and **Saturation** first (100% is as photographed,
 0% is grey, 200% doubles the colour). Error diffusion carries the colour error from cell to cell, so mixtures average
@@ -486,7 +496,7 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 - **Video is limited to 5000 frames** at its chosen rate (a 60 fps clip can be about 83 s). The picture is made smaller,
   not the rate, when the memory budget needs it: 5000 frames at 1080p would need about 18 GB.
 - **Video decoding depends on the browser.** Some MOV (HEVC) files cannot be decoded everywhere; the loader says so.
-- **Palettes map tone unless Grayscale is off.** With Grayscale on (the default), a palette chooses colours by tone,
+- **Palettes map tone unless Grayscale is off.** With Grayscale on, a palette chooses colours by tone,
   and hues in the photograph are not carried through. With Grayscale off, only the Dither algorithm follows the
   photograph's colour; the other algorithms still use tone.
 - **Oil paint and pixel sort are grayscale**, because they work on luminance only.

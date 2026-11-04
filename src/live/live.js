@@ -1,17 +1,19 @@
 // Live camera mode. The phone camera is shown full screen in portrait, with a live preview of the chosen palette and
-// algorithm at a 480-pixel short side. A strip at the top changes the palette and the algorithm (the same settings as
-// the editor). The camera switch button cycles through the lenses the browser exposes. A tap on the picture focuses
-// where the browser allows it. Holding the record button records the plain camera picture for up to 10 seconds into
-// the clip library on this device. Opening a clip hands it to the normal video path in app.js. Nothing is uploaded.
+// algorithm at a 480-pixel short side. A strip under the top bar changes the palette and the algorithm (the same
+// settings as the editor). The lens button cycles through the cameras the browser exposes. Settings opens the editor's
+// controls over the picture. A tap on the picture focuses where the browser allows it. Holding the record button
+// records the plain camera picture for up to 10 seconds, with a vibration scheme of your choice, into the clip library
+// on this device. Opening a clip hands it to the normal video path in app.js. Nothing is uploaded.
 
 import { createArtwork } from '../rendering/artwork.js';
 import { DT_PALETTE_LIBRARY } from '../rendering/dither/palettes.js';
 import { pickMp4Mime, pickWebmMime } from '../export/video-exporter.js';
 import { formatBytes } from '../ui.js';
 import {
-  cameraSupported, listCameras, openLens, stopCamera, cameraError, isFrontLabel, lensName,
+  cameraSupported, listCameras, openLens, stopCamera, cameraError, isFrontLabel, lensName, zoomRange, setZoom,
 } from './camera.js';
 import { saveClip, listClips, getClip, deleteClip, storageEstimate } from './clip-store.js';
+import { HAPTIC_SCHEMES, vibrate, startRecordingHaptics } from './haptics.js';
 
 // The preview's short side in pixels: 854×480 for a landscape camera, 480×854 for a portrait one.
 const PREVIEW_SHORT_SIDE = 480;
@@ -48,6 +50,9 @@ const DEFAULT_LENSES = [
   { facing: 'user', name: 'Front', front: true },
 ];
 
+const HAPTIC_KEY = 'js-rusty-haptics';
+const DEFAULT_HAPTIC = 'heartbeat';
+
 const $ = (id) => document.getElementById(id);
 
 const live = {
@@ -80,18 +85,23 @@ const live = {
   recStart: 0,
   recTimer: 0,
   recStop: 0,
+  hapticRun: null,
+  haptic: DEFAULT_HAPTIC,
+  sheetOpen: false,
+  sidebarHome: null,
   wake: null,
 };
 
 let statusTimer = 0;
 
-// options: getParams() returns the current settings; setParam(key, value) changes one (the same as the editor's
-// controls); onOpenClip(file) opens a clip in the normal editor.
+// options: getParams() returns the current settings; setParam(key, value) changes one, as the editor's controls do;
+// onOpenClip(file) opens a clip in the normal editor.
 export function initLive(options) {
   live.options = options;
   live.video = $('live-video');
   live.canvas = $('live-canvas');
   live.stage = $('live-stage');
+  live.haptic = readHapticChoice();
   const supported = cameraSupported() && window.isSecureContext;
   const openButton = $('btn-live');
   openButton.disabled = !supported;
@@ -101,6 +111,9 @@ export function initLive(options) {
   openButton.addEventListener('click', openLive);
   $('live-close').addEventListener('click', () => closeLive(false));
   $('live-switch').addEventListener('click', switchCamera);
+  $('live-settings').addEventListener('click', toggleSettings);
+  $('live-sheet-close').addEventListener('click', closeSettings);
+  $('live-haptic').addEventListener('click', cycleHaptic);
   $('live-library').addEventListener('click', openLibrary);
   live.stage.addEventListener('pointerdown', onStageTap);
   const record = $('live-record');
@@ -116,6 +129,7 @@ export function initLive(options) {
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('clip-library').hidden) closeLibrary();
+    else if (live.sheetOpen) closeSettings();
     else if (live.open) closeLive(false);
   });
   // A phone that leaves the page stops its camera. A recording in progress is kept before the screen closes.
@@ -127,6 +141,7 @@ export function initLive(options) {
   });
   buildStrip();
   updateLensButton();
+  updateHapticButton();
   updateTimer();
 }
 
@@ -178,6 +193,78 @@ function updateStrip() {
   }
 }
 
+// ---------- Settings: the editor's controls, shown over the picture ----------
+
+// The right-hand panel is moved into the live screen while settings are open, so the same controls drive the preview.
+// It goes back to its place in the editor when settings close.
+function openSettings() {
+  if (live.sheetOpen) return;
+  const sidebar = $('sidebar-right');
+  if (!live.sidebarHome) {
+    live.sidebarHome = { parent: sidebar.parentNode, next: sidebar.nextSibling };
+  }
+  $('live-sheet-body').appendChild(sidebar);
+  sidebar.classList.add('in-live-sheet');
+  $('live-sheet').hidden = false;
+  live.sheetOpen = true;
+  $('live-settings').setAttribute('aria-expanded', 'true');
+}
+
+function closeSettings() {
+  if (!live.sheetOpen) return;
+  const sidebar = $('sidebar-right');
+  if (live.sidebarHome) {
+    live.sidebarHome.parent.insertBefore(sidebar, live.sidebarHome.next);
+    live.sidebarHome = null;
+  }
+  sidebar.classList.remove('in-live-sheet');
+  $('live-sheet').hidden = true;
+  live.sheetOpen = false;
+  $('live-settings').setAttribute('aria-expanded', 'false');
+}
+
+function toggleSettings() {
+  if (live.sheetOpen) closeSettings();
+  else openSettings();
+}
+
+// ---------- Vibration ----------
+
+function hapticScheme() {
+  return HAPTIC_SCHEMES.find((s) => s.id === live.haptic) || HAPTIC_SCHEMES[0];
+}
+
+function readHapticChoice() {
+  try {
+    const saved = localStorage.getItem(HAPTIC_KEY);
+    if (HAPTIC_SCHEMES.some((s) => s.id === saved)) return saved;
+  } catch (err) {
+    // Storage is unavailable: use the default.
+  }
+  return DEFAULT_HAPTIC;
+}
+
+function updateHapticButton() {
+  const scheme = hapticScheme();
+  const button = $('live-haptic');
+  button.textContent = scheme.label;
+  button.setAttribute('aria-label', 'Vibration: ' + scheme.label + '. Tap to change.');
+}
+
+// Steps to the next scheme and gives its press cue, so the choice can be felt at once.
+function cycleHaptic() {
+  const index = HAPTIC_SCHEMES.findIndex((s) => s.id === live.haptic);
+  const next = HAPTIC_SCHEMES[(index + 1) % HAPTIC_SCHEMES.length];
+  live.haptic = next.id;
+  try {
+    localStorage.setItem(HAPTIC_KEY, live.haptic);
+  } catch (err) {
+    // Not kept between visits when storage is unavailable.
+  }
+  updateHapticButton();
+  vibrate(next.start);
+}
+
 // ---------- Opening and closing ----------
 
 async function openLive() {
@@ -208,6 +295,7 @@ async function openLive() {
 function closeLive(force) {
   if (!live.open) return;
   if (live.recorder && !force) return;
+  closeSettings();
   live.open = false;
   live.starting = false;
   live.gen++;
@@ -229,10 +317,11 @@ async function startLens(lens) {
   }
   live.stream = stream;
   live.mirror = !!lens.front;
+  if (lens.zoom) setZoom(stream, lens.zoom);
   return true;
 }
 
-// The camera switch button cycles through the lenses.
+// The lens button cycles through every lens in the list.
 async function switchCamera() {
   if (!live.open || live.recorder || live.switching) return;
   live.switching = true;
@@ -270,26 +359,37 @@ function attachStream() {
   scheduleNext();
 }
 
-// The lenses the browser exposes. Their labels appear once the permission has been granted, so the list is read after
-// the first camera opens.
+// The lenses the browser exposes: every rear camera, then the front camera. Labels appear once the permission has been
+// granted, so the list is read after the first camera opens. If the browser lists only one rear camera but allows
+// zoom, the rear camera is offered at its zoom levels (0.5×, 1×, 2×, 3× where the camera allows them).
 async function refreshLenses() {
-  if (live.lensesKnown) return;
+  if (live.lensesKnown || !live.stream) return;
   const cameras = await listCameras();
   if (!cameras.length) return;
-  const byZoom = { '0.5×': 0, '1×': 1, '3×': 2 };
+  const order = { '0.5×': 0, '1×': 1, '2×': 2, '3×': 3 };
   const rear = cameras
     .filter((c) => !isFrontLabel(c.label))
-    .map((c) => ({ deviceId: c.deviceId, front: false, name: lensName(c.label) }))
-    .sort((a, b) => (byZoom[a.name] ?? 9) - (byZoom[b.name] ?? 9));
+    .map((c) => ({ deviceId: c.deviceId, facing: 'environment', front: false, name: lensName(c.label) }))
+    .sort((a, b) => (order[a.name] ?? 9) - (order[b.name] ?? 9));
   const front = cameras
     .filter((c) => isFrontLabel(c.label))
     .slice(0, 1)
-    .map((c) => ({ deviceId: c.deviceId, front: true, name: 'Front' }));
-  const lenses = rear.concat(front);
+    .map((c) => ({ deviceId: c.deviceId, facing: 'user', front: true, name: 'Front' }));
+  let lenses = rear.concat(front);
+  if (rear.length === 1) {
+    const range = zoomRange(live.stream);
+    if (range) {
+      const levels = [0.5, 1, 2, 3].filter((z) => z >= range.min - 0.01 && z <= range.max + 0.01);
+      if (levels.length) {
+        lenses = levels.map((z) => Object.assign({}, rear[0], { zoom: z, name: z + '×' })).concat(front);
+      }
+    }
+  }
   if (!lenses.length) return;
   live.lenses = lenses;
   live.lensesKnown = true;
-  live.lensIndex = 0;
+  const current = lenses.findIndex((l) => l.name === '1×');
+  live.lensIndex = current >= 0 ? current : 0;
   updateLensButton();
 }
 
@@ -348,6 +448,8 @@ function processFrame() {
     $('live-fps').textContent = fps.toFixed(0) + ' fps · ' + live.renderMs.toFixed(0) + ' ms per frame';
     live.frames = 0;
     live.fpsSince = now;
+    // The strip follows the settings, including changes made in the settings sheet.
+    updateStrip();
   }
 }
 
@@ -430,9 +532,11 @@ function pictureRect() {
   };
 }
 
-// A tap on the picture shows the focus square, and asks the camera to focus and expose there, where it can.
+// A tap on the picture shows the focus square, and asks the camera to focus and expose there, where it can. Taps on
+// the settings sheet do not count.
 function onStageTap(e) {
   if (!live.open || !live.stream || !live.W) return;
+  if (e.target.closest && e.target.closest('.live-sheet')) return;
   const pic = pictureRect();
   const x = (e.clientX - pic.left) / pic.width;
   const y = (e.clientY - pic.top) / pic.height;
@@ -479,7 +583,8 @@ function onRecordDown(e) {
   startRecording();
 }
 
-// Starts recording the camera stream (video only). It stops when the button is released, or at 10 seconds.
+// Starts recording the camera stream (video only). It stops when the button is released, or at 10 seconds. The
+// vibration scheme starts with the press and stops with the recording.
 function startRecording() {
   if (!live.open || live.recorder || !live.stream || live.switching) return;
   const mime = pickMp4Mime('h264') || pickWebmMime();
@@ -512,6 +617,7 @@ function startRecording() {
   recorder.onstop = () => finishRecording(job);
   live.recorder = recorder;
   live.recStart = startedAt;
+  live.hapticRun = startRecordingHaptics(live.haptic, RECORD_SECONDS);
   recorder.start(250);
   $('live-record').classList.add('recording');
   live.recTimer = setInterval(updateTimer, 100);
@@ -523,6 +629,10 @@ function stopRecording() {
   const recorder = live.recorder;
   if (!recorder) return;
   live.recorder = null;
+  if (live.hapticRun) {
+    live.hapticRun.stop();
+    live.hapticRun = null;
+  }
   clearInterval(live.recTimer);
   clearTimeout(live.recStop);
   live.recTimer = 0;

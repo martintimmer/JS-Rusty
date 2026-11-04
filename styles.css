@@ -78,6 +78,10 @@ h2 {
 .topbar-right { justify-self: end; display: flex; align-items: center; gap: 18px; min-width: 0; }
 /* The interface-size buttons are for phones and tablets only (shown by the phone rules below). */
 .ui-scale { display: none; align-items: center; gap: 4px; }
+.ui-scale-label { font-size: 11px; color: var(--text-muted); }
+.dock-tabs .ui-scale { flex: none; }
+/* The image zoom label, so it is clearly the picture's zoom and not the menus' text size. */
+.zoom-label { font-size: 11px; color: var(--text-muted); margin-right: 2px; }
 
 /* ---------- Sidebars ---------- */
 .sidebar {

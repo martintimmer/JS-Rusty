@@ -9,12 +9,12 @@ import { dtSrgbToLinearExact, dtOklabFromLinear } from './colour.js';
 // ordered method. Custom palettes are rebuilt only when their text changes.
 
 export const DT_PALETTE_CATEGORIES = [
+  { id: 'retro-gaming', label: '8 bit' },
   { id: 'retro-displays', label: 'Retro Displays' },
-  { id: 'retro-gaming', label: 'Retro Gaming' },
   { id: 'artistic-photography', label: 'Artistic Photography' },
 ];
 
-// The 13 presets shown in the library. method is the suggested dithering method; choosing a palette
+// The presets shown in the library, in groups: 8 bit, retro displays and artistic photography. method is the suggested dithering method; choosing a palette
 // does not change the method by itself.
 const DT_PRESETS = [
   {
@@ -36,19 +36,19 @@ const DT_PRESETS = [
     hex: ['#061522', '#123B5B', '#2D7296', '#74B8CE', '#D5F3F5'],
   },
   {
-    id: 'game-boy-classic', name: 'Game Boy Classic', category: 'retro-displays', method: 'bayer',
+    id: 'game-boy-classic', name: 'Game Boy Classic', category: 'retro-gaming', method: 'bayer',
     description: 'Four-shade green LCD appearance inspired by the original handheld console.',
     use: 'handheld-console pixel look',
     hex: ['#0F380F', '#306230', '#8BAC0F', '#9BBC0F'],
   },
   {
-    id: 'ibm-cga-neon', name: 'IBM CGA Neon', category: 'retro-displays', method: 'bayer',
+    id: 'ibm-cga-neon', name: 'IBM CGA Neon', category: 'retro-gaming', method: 'bayer',
     description: 'Classic early PC graphics with electric cyan, magenta, black and white.',
     use: 'early-PC graphics, bold and high-contrast images',
     hex: ['#000000', '#55FFFF', '#FF55FF', '#FFFFFF'],
   },
   {
-    id: 'commodore-64', name: 'Commodore 64 Inspired', category: 'retro-gaming', method: 'atkinson',
+    id: 'commodore-64', name: 'Commodore 64', category: 'retro-gaming', method: 'atkinson',
     description: 'A nostalgic 16-colour palette inspired by vintage home computers.',
     use: 'home-computer illustration and pixel art',
     hex: ['#000000', '#FFFFFF', '#68372B', '#70A4B2', '#6F3D86', '#588D43', '#352879', '#B8C76F',
@@ -96,6 +96,40 @@ const DT_PRESETS = [
     description: 'Cold, atmospheric winter aesthetic with desaturated blues, icy turquoise and pale highlights.',
     use: 'winter and cold-light landscapes',
     hex: ['#081A2A', '#1D4965', '#4F8FA3', '#9AC7C3', '#D0E1D8', '#EFF4E8'],
+  },
+  {
+    id: 'zx-spectrum', name: 'ZX Spectrum', category: 'retro-gaming', method: 'floyd-steinberg',
+    description: 'Sinclair home computer: eight colours, each in a normal and a bright version (15 colours in all).',
+    use: 'bold primary colours and the colour blocks of the attribute grid',
+    hex: ['#000000', '#0000d8', '#0000ff', '#d80000', '#ff0000', '#d800d8', '#ff00ff', '#00d800', '#00ff00',
+      '#00d8d8', '#00ffff', '#d8d800', '#ffff00', '#d8d8d8', '#ffffff'],
+  },
+  {
+    id: 'nes', name: 'NES', category: 'retro-gaming', method: 'atkinson',
+    description: 'Nintendo Entertainment System: 16 colours picked from the console\'s 55-colour palette.',
+    use: 'console-era sprites and bright flat colour',
+    hex: ['#000000', '#fcfcfc', '#bcbcbc', '#7c7c7c', '#0078f8', '#0000fc', '#6888fc', '#f878f8', '#d800cc',
+      '#e40058', '#f83800', '#fca044', '#f8b800', '#58d854', '#00a800', '#00e8d8'],
+  },
+  {
+    id: 'apple-ii', name: 'Apple II', category: 'retro-gaming', method: 'bayer',
+    description: 'Apple II hi-res graphics: six colours, with the colour fringes of the 1978 machine.',
+    use: 'the hi-res colour look of early home computers',
+    hex: ['#000000', '#68e043', '#d660ef', '#ffffff', '#e6792e', '#4bb8f1'],
+  },
+  {
+    id: 'msx', name: 'MSX', category: 'retro-gaming', method: 'jjn',
+    description: 'MSX1 home computers, from the TMS9918 video chip palette (15 colours). Values follow the CLK emulator.',
+    use: 'soft colour from the MSX era',
+    hex: ['#000000', '#21c842', '#5edc78', '#5455ed', '#7d76fc', '#d4524d', '#42ebf5', '#fc5554', '#ff7978',
+      '#d4c154', '#e6ce80', '#21b03b', '#c95bba', '#cccccc', '#ffffff'],
+  },
+  {
+    id: 'classic-mac', name: 'Classic Mac OS', category: 'retro-gaming', method: 'atkinson',
+    description: 'The 16-colour default palette of classic Mac OS (System 7 to Mac OS 9).',
+    use: 'the desktop colours of the classic Macintosh',
+    hex: ['#ffffff', '#fcf305', '#ff6402', '#dd0806', '#f20884', '#4600a5', '#0000d4', '#02abea', '#1fb714',
+      '#006411', '#562c05', '#90713a', '#c0c0c0', '#808080', '#404040', '#000000'],
   },
 ];
 

@@ -34,12 +34,8 @@
       </div>
 
       <div class="topbar-right">
-        <!-- Phones and tablets: makes the whole interface smaller or larger (hidden on desktop by the stylesheet). -->
-        <div class="ui-scale" role="group" aria-label="Interface size">
-          <button class="btn icon" id="ui-smaller" type="button" title="Smaller interface" aria-label="Smaller interface">−</button>
-          <button class="btn icon" id="ui-larger" type="button" title="Larger interface" aria-label="Larger interface">+</button>
-        </div>
         <div class="zoom">
+          <span class="zoom-label">Zoom</span>
           <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
           <span id="zoom-val">Fit</span>
           <span class="canvas-px" id="canvas-px"></span>
@@ -273,6 +269,12 @@
       <button class="seg" type="button" data-dock="left" aria-pressed="true">Algorithm</button>
       <button class="seg" type="button" data-dock="right" aria-pressed="false">Settings</button>
       <button class="seg" type="button" data-dock="closed" aria-pressed="false" aria-label="Hide menus">Hide</button>
+      <!-- Phones and tablets: makes the text and the controls smaller or larger. Separate from the image zoom in the top bar. -->
+      <div class="ui-scale" role="group" aria-label="Text and control size">
+        <span class="ui-scale-label">Text</span>
+        <button class="btn icon" id="ui-smaller" type="button" title="Smaller text and controls" aria-label="Smaller text and controls">A−</button>
+        <button class="btn icon" id="ui-larger" type="button" title="Larger text and controls" aria-label="Larger text and controls">A+</button>
+      </div>
     </nav>
 
     <!-- ============ RIGHT SIDEBAR ============ -->

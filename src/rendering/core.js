@@ -46,7 +46,7 @@ export const DEFAULT_PARAMS = {
   // Dither engine (src/rendering/dither). These defaults reproduce the original Atkinson, two-tone output.
   dtMethod: 'atkinson',      // atkinson | floyd-steinberg | jjn | bayer | bayer4 | random | blue-noise | none
   dtLevels: 2,               // tonal levels of the paper-and-ink ramp: 2, 3, 4, 8 or 16
-  dtPalette: 'paper-ink',    // paper-ink (uses palette and background), a named colour set, or custom (dtColours)
+  dtPalette: 'pico-8',    // paper-ink (uses palette and background), a named colour set, or custom (dtColours)
   dtColours: '',             // custom colour list: 2 to 16 hex colours
   dtSerpentine: false,       // alternate the scan direction on each row (error diffusion only)
   dtThreshold: 50,           // global threshold, 0-100 (50 = midpoint)

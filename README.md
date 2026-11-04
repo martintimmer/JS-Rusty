@@ -81,7 +81,7 @@ The right sidebar holds the settings. Saturation and Grayscale are in Tone, and 
 
 Drag the thin bar between a sidebar and the canvas to change that sidebar's width. The arrow keys move the bar when it
 has focus (hold Shift for bigger steps), and double-clicking the bar restores the default width. Widths are kept in
-this browser's local storage. On phones and tablets the menus sit in the dock instead, as described above. The − and + buttons in the top bar make the whole interface smaller or larger, and the choice is kept in this browser.
+this browser's local storage. On phones and tablets the menus sit in the dock instead, as described above. On phones and tablets, the A− and A+ buttons in the menu bar change the size of the text and controls. The Zoom buttons in the top bar zoom the picture only. The choice is kept in this browser.
 
 ---
 
@@ -207,7 +207,7 @@ engines draw with `Path2D`.
 | Halftone | `halftone.js` | Hexagonal dot lattice, rotated 15° and jittered, sized by darkness. |
 | Pencil sketch | `pencil.js` | Line integral convolution of a noise texture along the flow field, thresholded against darkness, plus contour outlines and paper grain. |
 | Wave lines | `waves.js` | Rows lifted by darkness, drawn top to bottom with occlusion. |
-| Dither | `dither.js`, `rendering/dither/` | Eight methods: Atkinson (default), Floyd–Steinberg and Jarvis–Judice–Ninke error diffusion; Bayer 8 × 8 and 4 × 4, random threshold and blue-noise ordered dithering; and none (direct quantisation). Two to sixteen tonal levels, or a palette from the library of 13 presets, or your own palette of 2–16 colours. Optional colour from the photo (Grayscale off, with a palette), saturation, dither strength, dither cells from 1 to 16 px, adaptive threshold, edge-preserving diffusion, serpentine scan, gamma, grain, invert and temporal stabilisation. See section 5.1. |
+| Dither | `dither.js`, `rendering/dither/` | Eight methods: Atkinson (default), Floyd–Steinberg and Jarvis–Judice–Ninke error diffusion; Bayer 8 × 8 and 4 × 4, random threshold and blue-noise ordered dithering; and none (direct quantisation). Two to sixteen tonal levels, or a palette from the library of 18 presets (eight-bit machines, retro displays and artistic photography), or your own palette of 2–16 colours. Optional colour from the photo (Grayscale off, with a palette), saturation, dither strength, dither cells from 1 to 16 px, adaptive threshold, edge-preserving diffusion, serpentine scan, gamma, grain, invert and temporal stabilisation. See section 5.1. |
 | Oil paint | `oil.js` | Kuwahara filter with summed-area tables: the mean of the lowest-variance quadrant. |
 | Linocut | `linocut.js` | Two-tone: solid where dark, flow-aligned gouge streaks in the middle tones, outlines on edges. |
 | ASCII | `ascii.js` | A glyph per cell, chosen by darkness from a light-to-dark ramp. |
@@ -257,8 +257,8 @@ back to the photograph's colours. The colour frames are kept at analysis size, w
 the memory the grey frames use.
 
 **Levels and colour.** Tonal levels (2, 3, 4, 8 or 16) interpolate between paper and ink. A palette replaces them.
-The **Palette** panel, in the left sidebar below Algorithm, applies to every algorithm. It lists 13 presets in three
-groups, Retro Displays, Retro Gaming and Artistic Photography, plus paper and ink, as compact tiles with a mini line
+The **Palette** panel, in the left sidebar below Algorithm, applies to every algorithm. It lists 18 presets in three
+groups, 8 bit (shown first), Retro Displays and Artistic Photography, plus paper and ink. PICO-8 is the default palette, and the 8 bit group holds Commodore 64, ZX Spectrum, NES, Apple II hi-res, MSX, Classic Mac OS, Game Boy and CGA. The 8 bit colours are exact palette values from the sources named in the commit; the NES set is 16 of its 55 colours, and the MSX values follow the CLK emulator, which differs from real hardware, as compact tiles with a mini line
 icon and a strip of their colours. For the two-colour algorithms, a palette supplies its lightest colour as paper and
 its darkest as ink. The Dither algorithm uses the whole palette. Each card shows its swatches, colour count, description, use and suggested
 method. Choosing a palette never changes the method. Custom palettes take 2 to 16 colours, entered as HEX or with a
@@ -274,7 +274,7 @@ table, built once per palette: for each of the 256 grey levels it stores the pai
 that best mixes to that grey. Each cell is then one lookup, and the output is always an exact palette colour. Palette
 order does not affect the result.
 
-The defaults (Atkinson, 2 levels, every option at zero or off) reproduce the original renderer's output, and a
+The defaults (Atkinson, PICO-8 palette, every option at zero or off) reproduce the original renderer's output, and a
 check against it was run on several parameter sets.
 
 ---

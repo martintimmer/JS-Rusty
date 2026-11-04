@@ -45,6 +45,11 @@ const PALETTE_ICONS = {
   'vintage-sepia': '<rect x="5" y="6" width="22" height="20" rx="1"/><rect x="8" y="9" width="16" height="11"/><path d="M8 18l5-4 4 3 3-2 4 3"/>',
   'arctic-frost': '<path d="M16 5v22M5.5 10.5l21 11M5.5 21.5l21-11"/><path d="M13 7l3 2 3-2M13 25l3-2 3 2"/>',
   'paper-ink': '<circle cx="16" cy="16" r="11"/><path d="M16 5v22M11 9v14M21 9v14"/>',
+  'zx-spectrum': '<rect x="4" y="8" width="24" height="16" rx="2"/><path d="M8 12h16M8 16h10M8 20h6"/>',
+  nes: '<rect x="4" y="11" width="24" height="10" rx="4"/><path d="M9 16h5M11.5 13.5v5"/><circle cx="21" cy="14.5" r="1.2"/><circle cx="23.5" cy="17.5" r="1.2"/>',
+  'apple-ii': '<rect x="6" y="5" width="20" height="16" rx="1"/><path d="M10 9h12M10 13h7M13 21v4M19 21v4M10 25h12"/>',
+  msx: '<rect x="3" y="10" width="26" height="12" rx="2"/><path d="M7 14h1M11 14h1M15 14h1M19 14h1M23 14h1M8 18h16"/>',
+  'classic-mac': '<rect x="7" y="4" width="18" height="16" rx="2"/><rect x="10" y="7" width="12" height="9" rx="1"/><path d="M12 23h8M16 20v3"/>',
   saved: '<path d="M10 5h12v22l-6-5-6 5z"/>',
 };
 
@@ -275,22 +280,28 @@ function renderAll() {
 function renderGroups() {
   const box = $('palette-groups');
   box.textContent = '';
+  // The first category (8 bit) is shown first, then the standard paper and ink, then the other categories.
+  const categories = DT_PALETTE_CATEGORIES;
+  appendCategory(box, categories[0]);
   box.appendChild(groupTitle('Standard'));
   box.appendChild(paperInkCard());
-  for (const category of DT_PALETTE_CATEGORIES) {
-    const members = DT_PALETTE_LIBRARY.filter((p) => p.category === category.id);
-    if (!members.length) continue;
-    box.appendChild(groupTitle(category.label));
-    const grid = el('div', 'palette-grid');
-    for (const preset of members) grid.appendChild(presetCard(preset));
-    box.appendChild(grid);
-  }
+  for (const category of categories.slice(1)) appendCategory(box, category);
   if (session.saved.length) {
     box.appendChild(groupTitle('Saved this session'));
     const grid = el('div', 'palette-grid');
     session.saved.forEach((saved, i) => grid.appendChild(savedCard(saved, i)));
     box.appendChild(grid);
   }
+}
+
+// One category of presets: its title and a grid of cards. Empty categories are skipped.
+function appendCategory(box, category) {
+  const members = DT_PALETTE_LIBRARY.filter((p) => p.category === category.id);
+  if (!members.length) return;
+  box.appendChild(groupTitle(category.label));
+  const grid = el('div', 'palette-grid');
+  for (const preset of members) grid.appendChild(presetCard(preset));
+  box.appendChild(grid);
 }
 
 function paperInkCard() {

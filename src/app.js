@@ -642,6 +642,8 @@ function bindZoom() {
   // The canvas is sized to the stage, which also changes when a sidebar is dragged wider or narrower.
   if (window.ResizeObserver) new ResizeObserver(() => relayout()).observe($('stage'));
   $('canvas-pair').addEventListener('pointerup', onCanvasTap);
+  bindPhoneGestures();
+  blockBrowserZoom();
 }
 
 let lastTap = { t: 0, x: 0, y: 0 };
@@ -665,16 +667,157 @@ function onCanvasTap(e) {
   stage.scrollTop += after.top + fy * after.height - e.clientY;
 }
 
+// The menu that a drag up opens: the last one the user chose (Settings at first).
+let lastOpenDock = 'right';
+
+// Phones: the browser must not pinch or refresh the page. The photo is pinched and panned in the app instead (see
+// bindPhoneGestures). iOS Safari pinches the whole page with gesture events; other browsers pinch with two fingers.
+function blockBrowserZoom() {
+  if (!isTouchDevice()) return;
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+  }
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+}
+
+// Phones: a drag up on the photo or the menu tabs opens the settings, and a drag down closes them. On the photo, one
+// finger pans a zoomed photo and two fingers pinch it. Mouse and trackpad keep the desktop behaviour.
+const SHEET_DRAG_PX = 48;
+const touchPoints = new Map();
+let touchDrag = null;
+let pinchStart = null;
+let tabDrag = null;
+
+function bindPhoneGestures() {
+  if (!isTouchDevice()) return;
+  const stage = $('stage');
+  stage.addEventListener('pointerdown', onPhonePointerDown);
+  stage.addEventListener('pointermove', onPhonePointerMove);
+  stage.addEventListener('pointerup', onPhonePointerEnd);
+  stage.addEventListener('pointercancel', onPhonePointerEnd);
+  const tabs = $('dock-tabs');
+  tabs.addEventListener('pointerdown', onTabsPointerDown);
+  tabs.addEventListener('pointermove', onTabsPointerMove);
+  tabs.addEventListener('pointerup', onTabsPointerEnd);
+  tabs.addEventListener('pointercancel', onTabsPointerEnd);
+}
+
+function onPhonePointerDown(e) {
+  if (e.pointerType !== 'touch') return;
+  touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touchPoints.size === 2) {
+    touchDrag = null;
+    startPinch();
+  } else if (touchPoints.size === 1) {
+    touchDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, decided: false };
+  }
+}
+
+// Remembers the zoom, the distance between the fingers, and the point of the photo under their midpoint.
+function startPinch() {
+  const [a, b] = [...touchPoints.values()];
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const r = $('canvas-pair').getBoundingClientRect();
+  pinchStart = {
+    dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+    zoom: state.zoom,
+    fx: r.width ? (mx - r.left) / r.width : 0.5,
+    fy: r.height ? (my - r.top) / r.height : 0.5,
+  };
+}
+
+function onPhonePointerMove(e) {
+  if (!touchPoints.has(e.pointerId)) return;
+  touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touchPoints.size >= 2 && pinchStart) {
+    pinchTo();
+    return;
+  }
+  const d = touchDrag;
+  if (!d || d.id !== e.pointerId) return;
+  if (state.zoom > 1.01) {
+    // Zoomed: the drag pans the photo.
+    const stage = $('stage');
+    stage.scrollLeft -= e.clientX - d.lastX;
+    stage.scrollTop -= e.clientY - d.lastY;
+    d.lastX = e.clientX;
+    d.lastY = e.clientY;
+    return;
+  }
+  // At fit: a vertical drag on the photo opens the settings (up) or closes them (down).
+  if (d.decided) return;
+  const dx = e.clientX - d.x;
+  const dy = e.clientY - d.y;
+  if (Math.abs(dy) < SHEET_DRAG_PX || Math.abs(dy) < Math.abs(dx)) return;
+  d.decided = true;
+  if (dy < 0) openSheet();
+  else closeSheet();
+}
+
+function pinchTo() {
+  const [a, b] = [...touchPoints.values()];
+  const dist = Math.hypot(a.x - b.x, a.y - b.y);
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  setZoom(pinchStart.zoom * dist / pinchStart.dist);
+  // The point of the photo the fingers started on stays under the fingers.
+  const r = $('canvas-pair').getBoundingClientRect();
+  const stage = $('stage');
+  stage.scrollLeft += r.left + pinchStart.fx * r.width - mx;
+  stage.scrollTop += r.top + pinchStart.fy * r.height - my;
+}
+
+function onPhonePointerEnd(e) {
+  touchPoints.delete(e.pointerId);
+  if (touchPoints.size < 2) pinchStart = null;
+  if (touchDrag && touchDrag.id === e.pointerId) touchDrag = null;
+}
+
+function onTabsPointerDown(e) {
+  if (e.pointerType !== 'touch') return;
+  tabDrag = { id: e.pointerId, y: e.clientY, done: false };
+}
+
+function onTabsPointerMove(e) {
+  const t = tabDrag;
+  if (!t || t.id !== e.pointerId || t.done) return;
+  const dy = e.clientY - t.y;
+  if (Math.abs(dy) < SHEET_DRAG_PX) return;
+  t.done = true;
+  if (dy < 0) openSheet();
+  else closeSheet();
+}
+
+function onTabsPointerEnd(e) {
+  if (tabDrag && tabDrag.id === e.pointerId) tabDrag = null;
+}
+
+// Opens the last menu the user chose, unless a menu is already open.
+function openSheet() {
+  const current = document.body.dataset.dock;
+  if (current === 'left' || current === 'right') return;
+  setDock(lastOpenDock);
+}
+
+function closeSheet() {
+  if (document.body.dataset.dock !== 'closed') setDock('closed');
+}
+
 // Phones and tablets: the menus sit in a dock under the canvas. 'left' is Algorithm, 'right' is Settings,
 // and 'closed' gives the canvas the whole screen.
 function bindDock() {
   for (const button of document.querySelectorAll('#dock-tabs [data-dock]')) {
     button.addEventListener('click', () => setDock(button.dataset.dock));
   }
-  if (window.matchMedia('(max-width: 900px)').matches) setDock('left');
+  // Phones start with the photo alone. A drag up on the photo or the tabs opens the settings.
+  if (window.matchMedia('(max-width: 900px)').matches) setDock('closed');
 }
 
 function setDock(name) {
+  if (name !== 'closed') lastOpenDock = name;
   document.body.dataset.dock = name;
   for (const button of document.querySelectorAll('#dock-tabs [data-dock]')) {
     button.setAttribute('aria-pressed', button.dataset.dock === name ? 'true' : 'false');

@@ -67,6 +67,10 @@ head sets the web-app title, theme colour and icon).
 
 ### 2.2 Viewing the artwork
 
+On a phone the photo uses the whole screen, and the browser does not pinch-zoom or pull to refresh the page. Pinch to zoom
+the photo, and drag to pan it when zoomed. Drag up on the photo or on the menu tabs to open the settings, and drag down to
+close them. The zoom buttons are not shown on a phone, since pinch replaces them.
+
 The top bar runs across the whole window. It holds the **Artwork**, **Original** and **Split** views, the zoom
 level and the size of the rendered canvas in pixels. **Fit** scales the artwork to the window. Double-click it (or
 double-tap on a touch screen) to zoom to 200% and double-click again to return to fit. The point you click stays

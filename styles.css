@@ -608,6 +608,21 @@ input[type=range]:disabled { opacity: .4; }
   .modal { width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 14px 14px 0 0; }
 }
 
+/* Phones: the page does not pinch, double-tap zoom or pull to refresh. The photo is pinched and panned in the app. */
+@media (pointer: coarse) {
+  html { touch-action: pan-x pan-y; overscroll-behavior: none; }
+  body { overscroll-behavior: none; }
+  #stage, #stage-inner, #canvas-pair, #dock-tabs { touch-action: none; }
+  #stage { overscroll-behavior: contain; }
+  /* Pinch replaces the zoom buttons on a phone. */
+  .zoom { display: none; }
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@media (max-width: 900px) {
+  /* iOS zooms into a field whose text is under 16px when the field is focused. */
+  input:not([type="range"]):not([type="checkbox"]), select, textarea { font-size: 16px; }
+}
+
 /* Notches and home indicators (viewport-fit=cover is set in the page head). */
 @supports (padding: env(safe-area-inset-bottom)) {
   .transport { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }

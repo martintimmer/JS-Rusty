@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#1c1b19" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="JS Rusty" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>JS Rusty</title>
+  <link rel="icon" href="icon/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="icon/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="icon/icon-180.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- ============ LEFT SIDEBAR ============ -->
+    <aside class="sidebar sidebar-left">
+      <header class="brand">
+        <img class="brand-icon" src="icon/icon.svg" alt="" width="34" height="34" />
+        <div>
+          <h1>JS Rusty</h1>
+          <p class="muted small">Media to generative JavaScript art</p>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Source</h2>
+        <dl class="info" id="source-info">
+          <dt>File</dt><dd id="info-name">—</dd>
+          <dt>Type</dt><dd id="info-type">—</dd>
+          <dt>Source size</dt><dd id="info-size">—</dd>
+          <dt>Duration</dt><dd id="info-duration">—</dd>
+          <dt>Processed</dt><dd id="info-processed">—</dd>
+        </dl>
+      </section>
+
+      <section class="panel">
+        <h2>Algorithm</h2>
+        <div class="algo-grid" id="algorithm-selector" role="radiogroup" aria-label="Algorithm">
+          <button class="seg active" data-algo="engraving" role="radio" aria-checked="true">Engraving <span>Lines</span></button>
+          <button class="seg" data-algo="stippling" role="radio" aria-checked="false">Stippling <span>Dots</span></button>
+          <button class="seg" data-algo="contour" role="radio" aria-checked="false">Contour <span>Line art</span></button>
+          <button class="seg" data-algo="contour-drawing" role="radio" aria-checked="false">Contour Drawing <span>Hand-drawn</span></button>
+          <button class="seg" data-algo="lowpoly" role="radio" aria-checked="false">Low Poly <span>Facets</span></button>
+          <button class="seg" data-algo="halftone" role="radio" aria-checked="false">Halftone <span>Print</span></button>
+          <button class="seg" data-algo="pencil" role="radio" aria-checked="false">Pencil Sketch <span>Strokes</span></button>
+          <button class="seg" data-algo="waves" role="radio" aria-checked="false">Wave Lines <span>Ridges</span></button>
+          <button class="seg" data-algo="dither" role="radio" aria-checked="false">Dither <span>Tones and colours</span></button>
+          <button class="seg" data-algo="oil" role="radio" aria-checked="false">Oil Paint <span>Kuwahara</span></button>
+          <button class="seg" data-algo="linocut" role="radio" aria-checked="false">Linocut <span>Carved</span></button>
+          <button class="seg" data-algo="ascii" role="radio" aria-checked="false">ASCII <span>Glyphs</span></button>
+          <button class="seg" data-algo="sort" role="radio" aria-checked="false">Pixel Sort <span>Glitch</span></button>
+        </div>
+        <p class="muted small" id="algo-note" hidden></p>
+      </section>
+
+      <section class="panel" id="animation-panel" hidden>
+        <h2>Animation</h2>
+        <div class="segmented vertical" id="animation-selector" role="radiogroup">
+          <button class="seg" data-anim="off" role="radio" aria-checked="false">Off <span>Still picture</span></button>
+          <button class="seg" data-anim="snake" role="radio" aria-checked="false">Snake <span>Lines follow</span></button>
+          <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing rings</span></button>
+          <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Fine float</span></button>
+          <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Travelling wave</span></button>
+        </div>
+        <p class="muted small" id="anim-note"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Processing</h2>
+        <label class="field" data-media="video">
+          <span><span>Sampling rate</span> <em id="fps-val">source</em></span>
+          <span><span>Match source frame rate</span> <input type="checkbox" id="p-fps-auto" checked /></span>
+          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled />
+        </label>
+        <label class="field">
+          <span>Resolution</span>
+          <select id="p-res">
+            <option value="1080" selected>1080p (1920×1080)</option>
+            <option value="720">720p (1280×720)</option>
+            <option value="540">540p (960×540)</option>
+            <option value="360">360p (640×360)</option>
+          </select>
+        </label>
+        <p class="status" id="status" hidden></p>
+      </section>
+
+      <section class="panel">
+        <h2>Export</h2>
+        <button class="btn full btn-primary" id="btn-export-open" disabled>Export…</button>
+        <p class="muted small">Format, output size, blur and a preview are in the export window.</p>
+      </section>
+    </aside>
+
+    <!-- ============ MAIN AREA ============ -->
+    <main class="main">
+      <div class="toolbar">
+        <div class="segmented" id="view-mode" role="radiogroup">
+          <button class="seg active" data-view="rendered">Artwork</button>
+          <button class="seg" data-view="original">Original</button>
+          <button class="seg" data-view="split">Split</button>
+        </div>
+        <div class="zoom">
+          <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
+          <span id="zoom-val">Fit</span>
+          <span class="canvas-px" id="canvas-px"></span>
+          <button class="btn icon" id="zoom-in" title="Zoom in">+</button>
+          <button class="btn" id="zoom-fit">Fit</button>
+        </div>
+        <div class="perf" id="perf">
+          <span>Render <b id="perf-render">—</b> ms</span>
+          <span>Frame <b id="perf-frame">—</b></span>
+          <span>Elements <b id="perf-elements">—</b></span>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="stage-inner" id="stage-inner">
+          <label class="empty-state" id="empty-state" for="file-input" tabindex="0" role="button" aria-label="Choose an image or video">
+            <svg class="dy-art" viewBox="0 0 240 180" aria-hidden="true" focusable="false">
+              <g class="dy-doc">
+                <path class="dy-ink" d="M98 4H128L144 20V44H98Z"/>
+                <path class="dy-ink" d="M106 22H134M106 30H136M106 36H124"/>
+              </g>
+              <path class="dy-line" style="--dy-delay: .8s" pathLength="1" d="M38 46H202Q210 46 210 54V156Q210 164 202 164H38Q30 164 30 156V54Q30 46 38 46Z"/>
+              <path class="dy-line" style="--dy-delay: 2.2s" pathLength="1" d="M34 140H206"/>
+              <path class="dy-line" style="--dy-delay: 2.5s" pathLength="1" d="M52 140L94 88L118 112L140 90L188 140"/>
+              <path class="dy-line" style="--dy-delay: 2.9s" pathLength="1" d="M164 70a12 12 0 1 0 24 0a12 12 0 1 0-24 0"/>
+              <path class="dy-line" style="--dy-delay: 3.6s" pathLength="1" d="M104 110l10 8M118 104l8 10M128 118l10 8M142 108l8 10M160 120l12 8"/>
+            </svg>
+            <span class="empty-title">Drop your image here</span>
+            <span class="empty-sub" id="empty-sub">or click to choose a file · JPG, PNG, WebP, MP4, WebM, MOV (video up to 30 s)</span>
+            <input type="file" id="file-input" accept="image/*,video/*" hidden />
+          </label>
+          <div class="canvas-pair" id="canvas-pair">
+            <div class="pane pane-original" id="pane-original">
+              <img id="orig-img" alt="" hidden />
+              <video id="orig-video" muted playsinline loop preload="auto" hidden></video>
+            </div>
+            <div class="pane pane-rendered" id="pane-rendered">
+              <canvas id="render-canvas"></canvas>
+            </div>
+            <div class="split-handle" id="split-handle" hidden></div>
+            <!-- Progress is drawn over the canvas while media loads and is processed. -->
+            <div class="progress-overlay" id="progress" hidden>
+              <div class="progress-card">
+                <div class="progress-label" id="progress-text">0%</div>
+                <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="btn icon" id="btn-play" data-media="animated" disabled title="Play / pause (Space)">▶</button>
+        <button class="btn icon" id="btn-restart" data-media="animated" disabled title="Restart">⟲</button>
+        <span class="time" id="time-cur" data-media="video">0:00.00</span>
+        <input type="range" id="timeline" data-media="video" min="0" max="1000" step="1" value="0" disabled />
+        <span class="time" id="time-dur" data-media="video">0:00.00</span>
+      </div>
+    </main>
+    <!-- Phones and tablets: switches the menus shown below the canvas (CSS shows this only on small screens). -->
+    <nav class="dock-tabs" id="dock-tabs" aria-label="Menus">
+      <button class="seg" type="button" data-dock="left" aria-pressed="true">Algorithm</button>
+      <button class="seg" type="button" data-dock="right" aria-pressed="false">Settings</button>
+      <button class="seg" type="button" data-dock="closed" aria-pressed="false" aria-label="Hide menus">Hide</button>
+    </nav>
+
+    <!-- ============ RIGHT SIDEBAR ============ -->
+    <!-- Each control carries data-ctrl. The app hides controls the current algorithm does not use
+         (src/algorithm-controls.js) and relabels them to what they do for that algorithm. -->
+    <aside class="sidebar sidebar-right">
+      <section class="panel" data-panel="tone">
+        <h2>Tone</h2>
+        <label class="field" data-ctrl="contrast">
+          <span><span class="lbl">Contrast</span> <em id="contrast-val">1.00</em></span>
+          <input type="range" id="r-contrast" min="0.2" max="3" step="0.05" value="1" />
+        </label>
+        <label class="field" data-ctrl="brightness">
+          <span><span class="lbl">Brightness</span> <em id="brightness-val">0</em></span>
+          <input type="range" id="r-brightness" min="-100" max="100" value="0" />
+        </label>
+      </section>
+
+      <section class="panel" data-panel="palette" data-always>
+        <h2>Palette</h2>
+        <div class="palette-library" id="palette-library">
+          <div class="palette-head">
+            <span class="lbl">Presets</span>
+            <button class="btn small" id="pl-new" type="button">New palette</button>
+          </div>
+          <div id="palette-groups"></div>
+          <div class="palette-editor" id="palette-editor" hidden>
+            <div class="palette-editor-title" id="pe-title">Custom palette</div>
+            <label class="field">
+              <span><span class="lbl">Name</span> <em id="pe-count"></em></span>
+              <input type="text" id="pe-name" maxlength="32" spellcheck="false" />
+            </label>
+            <div id="pe-colours"></div>
+            <div class="palette-actions">
+              <button class="btn small" id="pe-add" type="button">Add colour</button>
+              <button class="btn small" id="pe-save" type="button">Save to session</button>
+              <button class="btn small" id="pe-restore" type="button" hidden>Restore original</button>
+              <button class="btn small" id="pe-restore-presets" type="button">Restore presets</button>
+            </div>
+            <div class="palette-method" id="pe-method" hidden>
+              <span id="pe-method-text"></span>
+              <button class="btn small" id="pe-use-method" type="button">Use</button>
+            </div>
+            <p class="muted small" id="pe-note"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="rendering">
+        <h2>Rendering</h2>
+        <label class="field" data-ctrl="detail">
+          <span><span class="lbl">Detail</span> <em id="detail-val">70</em></span>
+          <input type="range" id="r-detail" min="0" max="100" value="70" />
+        </label>
+        <label class="field" data-ctrl="density">
+          <span><span class="lbl">Density</span> <em id="density-val">75</em></span>
+          <input type="range" id="r-density" min="0" max="100" value="75" />
+        </label>
+        <label class="field" data-ctrl="edge">
+          <span><span class="lbl">Edge halo</span> <em id="edge-val">0.50</em></span>
+          <input type="range" id="r-edge" min="0" max="2" step="0.05" value="0.5" />
+        </label>
+        <label class="field" data-ctrl="pattern">
+          <span><span class="lbl">Pattern</span></span>
+          <select id="r-pattern">
+            <option value="horizontal" selected>Horizontal</option>
+            <option value="diagonal">Diagonal</option>
+            <option value="crosshatch">Crosshatched</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel" data-panel="dither">
+        <h2>Dither</h2>
+        <label class="field" data-ctrl="dtMethod">
+          <span><span class="lbl">Method</span></span>
+          <select id="r-dt-method">
+            <option value="atkinson" selected>Atkinson</option>
+            <option value="floyd-steinberg">Floyd–Steinberg</option>
+            <option value="jjn">Jarvis–Judice–Ninke</option>
+            <option value="bayer">Bayer (ordered)</option>
+            <option value="blue-noise">Blue noise</option>
+          </select>
+        </label>
+        <label class="field" data-ctrl="dtLevels">
+          <span><span class="lbl">Tonal levels</span></span>
+          <select id="r-dt-levels">
+            <option value="2" selected>2 (black and white)</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+          </select>
+        </label>
+        <label class="field" data-ctrl="dtThreshold">
+          <span><span class="lbl">Threshold</span> <em id="dt-threshold-val">50</em></span>
+          <input type="range" id="r-dt-threshold" min="0" max="100" step="1" value="50" />
+        </label>
+        <label class="field" data-ctrl="dtAdaptive">
+          <span><span class="lbl">Adaptive threshold</span> <em id="dt-adaptive-val">0</em></span>
+          <input type="range" id="r-dt-adaptive" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="dtEdge">
+          <span><span class="lbl">Edge preservation</span> <em id="dt-edge-val">0</em></span>
+          <input type="range" id="r-dt-edge" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="dtDiffusion">
+          <span><span class="lbl">Diffusion strength</span> <em id="dt-diffusion-val">100%</em></span>
+          <input type="range" id="r-dt-diffusion" min="0" max="100" step="1" value="100" />
+        </label>
+        <label class="field" data-ctrl="dtGamma">
+          <span><span class="lbl">Gamma</span> <em id="dt-gamma-val">1.00</em></span>
+          <input type="range" id="r-dt-gamma" min="0.4" max="2.5" step="0.05" value="1" />
+        </label>
+        <label class="field" data-ctrl="dtNoise">
+          <span><span class="lbl">Grain</span> <em id="dt-noise-val">0</em></span>
+          <input type="range" id="r-dt-noise" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="dtGrid">
+          <span><span class="lbl">Grid size</span> <em id="dt-grid-val">2 px</em></span>
+          <input type="range" id="r-dt-grid" min="1" max="16" step="1" value="2" />
+        </label>
+        <label class="field" data-ctrl="dtTemporal">
+          <span><span class="lbl">Temporal stability</span> <em id="dt-temporal-val">0</em></span>
+          <input type="range" id="r-dt-temporal" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="dtSerpentine">
+          <span><span class="lbl">Serpentine scan</span> <input type="checkbox" id="r-dt-serpentine" /></span>
+        </label>
+        <label class="field" data-ctrl="dtInvert">
+          <span><span class="lbl">Invert</span> <input type="checkbox" id="r-dt-invert" /></span>
+        </label>
+      </section>
+
+      <section class="panel" data-panel="contourdrawing">
+        <h2>Contour drawing</h2>
+        <label class="field" data-ctrl="cdLevels">
+          <span><span class="lbl">Levels</span> <em id="cd-levels-val">12</em></span>
+          <input type="range" id="r-cd-levels" min="2" max="40" step="1" value="12" />
+        </label>
+        <label class="field" data-ctrl="cdSmooth">
+          <span><span class="lbl">Smoothing</span> <em id="cd-smooth-val">40</em></span>
+          <input type="range" id="r-cd-smooth" min="0" max="100" step="1" value="40" />
+        </label>
+        <label class="field" data-ctrl="cdTaper">
+          <span><span class="lbl">Taper</span> <em id="cd-taper-val">60</em></span>
+          <input type="range" id="r-cd-taper" min="0" max="100" step="1" value="60" />
+        </label>
+        <label class="field" data-ctrl="cdToneWeight">
+          <span><span class="lbl">Tone weight</span> <em id="cd-tone-weight-val">50</em></span>
+          <input type="range" id="r-cd-tone-weight" min="0" max="100" step="1" value="50" />
+        </label>
+        <label class="field" data-ctrl="cdShade">
+          <span><span class="lbl">Level shading</span> <em id="cd-shade-val">30</em></span>
+          <input type="range" id="r-cd-shade" min="0" max="100" step="1" value="30" />
+        </label>
+        <label class="field" data-ctrl="cdJitter">
+          <span><span class="lbl">Hand jitter</span> <em id="cd-jitter-val">20</em></span>
+          <input type="range" id="r-cd-jitter" min="0" max="100" step="1" value="20" />
+        </label>
+        <label class="field" data-ctrl="cdMinLen">
+          <span><span class="lbl">Minimum length</span> <em id="cd-min-len-val">20 px</em></span>
+          <input type="range" id="r-cd-min-len" min="0" max="200" step="1" value="20" />
+        </label>
+        <label class="field" data-ctrl="cdBreaks">
+          <span><span class="lbl">Breaks</span> <em id="cd-breaks-val">0</em></span>
+          <input type="range" id="r-cd-breaks" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="cdHatch">
+          <span><span class="lbl">Hatch fill</span> <em id="cd-hatch-val">0</em></span>
+          <input type="range" id="r-cd-hatch" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="cdHatchAngle">
+          <span><span class="lbl">Hatch angle</span> <em id="cd-hatch-angle-val">45°</em></span>
+          <input type="range" id="r-cd-hatch-angle" min="0" max="180" step="1" value="45" />
+        </label>
+        <label class="field" data-ctrl="cdHatchSpacing">
+          <span><span class="lbl">Hatch spacing</span> <em id="cd-hatch-spacing-val">8 px</em></span>
+          <input type="range" id="r-cd-hatch-spacing" min="3" max="30" step="1" value="8" />
+        </label>
+      </section>
+
+      <section class="panel" data-panel="lowpoly">
+        <h2>Low poly</h2>
+        <label class="field" data-ctrl="lpJitter">
+          <span><span class="lbl">Vertex jitter</span> <em id="lp-jitter-val">35</em></span>
+          <input type="range" id="r-lp-jitter" min="0" max="100" step="1" value="35" />
+        </label>
+        <label class="field" data-ctrl="lpShades">
+          <span><span class="lbl">Shades</span> <em id="lp-shades-val">8</em></span>
+          <input type="range" id="r-lp-shades" min="2" max="16" step="1" value="10" />
+        </label>
+        <label class="field" data-ctrl="lpBias">
+          <span><span class="lbl">Feature detail</span> <em id="lp-bias-val">60</em></span>
+          <input type="range" id="r-lp-bias" min="0" max="100" step="1" value="60" />
+        </label>
+        <label class="field" data-ctrl="lpGap">
+          <span><span class="lbl">Facet gap</span> <em id="lp-gap-val">0%</em></span>
+          <input type="range" id="r-lp-gap" min="0" max="40" step="1" value="10" />
+        </label>
+        <label class="field" data-ctrl="lpOutline">
+          <span><span class="lbl">Outline</span> <em id="lp-outline-val">0</em></span>
+          <input type="range" id="r-lp-outline" min="0" max="100" step="1" value="0" />
+        </label>
+      </section>
+
+      <section class="panel" data-panel="motion">
+        <h2>Motion &amp; animation</h2>
+        <label class="field" data-ctrl="particles">
+          <span><span class="lbl">Particles</span> <em id="particles-val">40000</em></span>
+          <input type="range" id="r-particles" min="500" max="80000" step="500" value="40000" />
+        </label>
+        <label class="field" data-ctrl="animCount">
+          <span><span class="lbl">Snakes</span> <em id="anim-count-val">400</em></span>
+          <input type="range" id="r-anim-count" min="20" max="2000" step="10" value="400" />
+        </label>
+        <label class="field" data-ctrl="motion">
+          <span><span class="lbl">Motion influence</span> <em id="motion-val">1.00</em></span>
+          <input type="range" id="r-motion" min="0" max="3" step="0.05" value="1" />
+        </label>
+        <label class="field" data-ctrl="speed">
+          <span><span class="lbl">Speed</span> <em id="speed-val">1.00×</em></span>
+          <input type="range" id="r-speed" min="0.1" max="3" step="0.05" value="1" />
+        </label>
+        <label class="field" data-ctrl="direction">
+          <span><span class="lbl">Flow direction</span> <em id="direction-val">0°</em></span>
+          <input type="range" id="r-direction" min="0" max="360" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="velocity">
+          <span><span class="lbl">Velocity</span> <em id="velocity-val">1.00</em></span>
+          <input type="range" id="r-velocity" min="0" max="3" step="0.05" value="1" />
+        </label>
+      </section>
+
+      <section class="panel" data-panel="color">
+        <h2>Stroke &amp; colour</h2>
+        <label class="field" data-ctrl="thickness">
+          <span><span class="lbl">Line weight</span> <em id="thick-val">1.0 px</em></span>
+          <input type="range" id="r-thickness" min="0.3" max="4" step="0.1" value="1" />
+        </label>
+        <label class="field" data-ctrl="palette">
+          <span><span class="lbl">Palette</span></span>
+          <select id="r-palette">
+            <option value="sepia" selected>Sepia</option>
+            <option value="monochrome">Monochrome</option>
+          </select>
+        </label>
+        <label class="field" data-ctrl="background">
+          <span><span class="lbl">Background</span></span>
+          <select id="r-background">
+            <option value="paper" selected>Paper</option>
+            <option value="ink">Ink</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <button class="btn full" id="btn-reset-params">Reset parameters</button>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Export window: format, output size and options, and a preview with the blur applied. -->
+  <div class="modal-backdrop" id="export-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
+      <div class="modal-head">
+        <h2 class="modal-title" id="export-title">Export</h2>
+        <button class="btn icon" id="export-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="segmented export-formats" id="export-formats" role="radiogroup" aria-label="Format">
+          <button class="seg" data-format="png" role="radio" aria-checked="true" type="button">PNG</button>
+          <button class="seg" data-format="jpg" role="radio" aria-checked="false" type="button">JPG</button>
+          <button class="seg" data-format="gif" role="radio" aria-checked="false" type="button">GIF</button>
+          <button class="seg" data-format="webm" role="radio" aria-checked="false" type="button">WebM</button>
+          <button class="seg" data-format="html" role="radio" aria-checked="false" type="button">HTML</button>
+          <button class="seg" data-format="js" role="radio" aria-checked="false" type="button">JS</button>
+        </div>
+        <div class="export-layout">
+          <div class="export-preview-wrap">
+            <canvas id="export-preview" width="320" height="200" hidden></canvas>
+            <p class="muted small export-empty" id="export-preview-empty">Process media to see a preview.</p>
+            <p class="muted small" id="export-preview-note"></p>
+          </div>
+          <div class="export-controls">
+            <p class="export-size" id="export-size"></p>
+            <label class="field" data-export="raster">
+              <span><span class="lbl">Width</span></span>
+              <select id="export-width">
+                <option value="1920" selected>1920 px (native)</option>
+                <option value="1280">1280 px</option>
+                <option value="960">960 px</option>
+                <option value="640">640 px</option>
+              </select>
+            </label>
+            <label class="field" data-export="standalone">
+              <span><span class="lbl">Width</span></span>
+              <select id="export-standalone-width">
+                <option value="1920">1920 px (native 1080p)</option>
+                <option value="960" selected>960 px</option>
+                <option value="640">640 px</option>
+                <option value="320">320 px</option>
+              </select>
+            </label>
+            <label class="field" data-export="quality">
+              <span><span class="lbl">JPG quality</span> <em id="export-quality-val">92</em></span>
+              <input type="range" id="export-quality" min="50" max="100" step="1" value="92" />
+            </label>
+            <label class="field" data-export="gif">
+              <span><span class="lbl">GIF frame rate</span></span>
+              <select id="export-gif-fps">
+                <option value="8">8 fps</option>
+                <option value="10">10 fps</option>
+                <option value="12" selected>12 fps</option>
+                <option value="15">15 fps</option>
+              </select>
+            </label>
+            <label class="field" data-export="blur">
+              <span><span class="lbl">Output blur</span> <em id="export-blur-val">Off</em></span>
+              <input type="range" id="export-blur" min="0" max="8" step="1" value="0" />
+            </label>
+          </div>
+        </div>
+        <p class="muted small" id="export-note"></p>
+        <p class="status" id="export-status" hidden></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="export-cancel" type="button">Close</button>
+        <button class="btn btn-primary" id="export-run" type="button" disabled>Export PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shown while a file is held over the window: it can be dropped anywhere. -->
+  <div class="drop-hint" id="drop-hint" hidden>Drop an image or video to process it</div>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

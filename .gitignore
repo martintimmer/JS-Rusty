@@ -1,0 +1,5 @@
+# Personal sample outputs: kept on disk, never published
+examples/
+
+# macOS metadata
+.DS_Store

@@ -1,5 +1,5 @@
-// The phone camera for live mode. Opens the rear or the front camera for video only, so no microphone permission is
-// asked for, and stops it again. Errors are turned into plain messages for the live screen.
+// The phone camera for live mode. Opens one camera lens for video only, so no microphone permission is asked for. It
+// lists the lenses the browser exposes and turns errors into plain messages for the live screen.
 
 export function cameraSupported() {
   return typeof navigator !== 'undefined' && !!navigator.mediaDevices &&
@@ -9,17 +9,34 @@ export function cameraSupported() {
 // The size and rate asked for. The browser gives the closest mode the camera offers.
 const WANTED = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
 
-// facing is 'environment' (rear) or 'user' (front).
-export async function openCamera(facing) {
+// The cameras the browser exposes. Their labels are empty until the camera permission has been granted.
+export async function listCameras() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === 'videoinput')
+      .map((d) => ({ deviceId: d.deviceId, label: d.label || '' }));
+  } catch (err) {
+    return [];
+  }
+}
+
+// Opens one lens. lens is { deviceId } for one camera, or { facing } where facing is 'environment' (rear) or 'user'
+// (front).
+export async function openLens(lens) {
+  const direction = lens.deviceId
+    ? { deviceId: { exact: lens.deviceId } }
+    : { facingMode: { ideal: lens.facing } };
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: Object.assign({ facingMode: { ideal: facing } }, WANTED),
+      video: Object.assign({}, direction, WANTED),
     });
   } catch (err) {
-    // Some cameras refuse the size request. Retry with the camera direction only.
+    // Some cameras refuse the size request. Retry with the lens alone.
     if (err && err.name === 'OverconstrainedError') {
-      return navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facing } } });
+      return navigator.mediaDevices.getUserMedia({ audio: false, video: direction });
     }
     throw err;
   }
@@ -27,6 +44,17 @@ export async function openCamera(facing) {
 
 export function stopCamera(stream) {
   if (stream) stream.getTracks().forEach((track) => track.stop());
+}
+
+export function isFrontLabel(label) {
+  return /front|user|face|selfie/i.test(label || '');
+}
+
+// The short name of a rear lens, from its label. Ultra-wide and telephoto lenses show their zoom.
+export function lensName(label) {
+  if (/ultra|0\.5/i.test(label || '')) return '0.5×';
+  if (/tele/i.test(label || '')) return '3×';
+  return '1×';
 }
 
 export function cameraError(err) {

@@ -530,12 +530,14 @@
   <div class="live-screen" id="live-screen" hidden role="dialog" aria-modal="true" aria-label="Live camera">
     <div class="live-top">
       <button class="live-btn" id="live-close" type="button" aria-label="Close live camera">×</button>
-      <span class="live-preset" id="live-preset">Dither</span>
-      <button class="live-btn" id="live-switch" type="button" aria-label="Switch between rear and front camera">⟲</button>
+      <span class="live-spacer"></span>
+      <button class="live-lens" id="live-switch" type="button" aria-label="Switch lens">1×</button>
     </div>
-    <div class="live-stage">
+    <div class="live-strip" id="live-strip" role="toolbar" aria-label="Palettes and algorithms"></div>
+    <div class="live-stage" id="live-stage">
       <video id="live-video" class="live-source" playsinline muted autoplay></video>
       <canvas id="live-canvas"></canvas>
+      <div class="live-focus" id="live-focus" hidden></div>
       <p class="live-status" id="live-status" hidden></p>
     </div>
     <div class="live-fps" id="live-fps">— fps</div>

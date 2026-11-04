@@ -66,7 +66,7 @@ function init() {
   initUiScale();
   initEmptyStateArt();
   // Live camera: a clip from the library opens here, in the normal video path, at the output size.
-  initLive({ getParams: () => state.params, onOpenClip: (file) => handleFile(file) });
+  initLive({ getParams: () => state.params, setParam: liveSetParam, onOpenClip: (file) => handleFile(file) });
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   // The default output is 1080p on every device. Long clips are made smaller automatically when their frames would
@@ -504,6 +504,16 @@ function setAnimation(type) {
   refreshControls();
   updatePlayButton();
   updateEnabledState();
+}
+
+// Live mode's palette and algorithm strip changes the same settings as the editor, so a clip opened later keeps them.
+function liveSetParam(key, value) {
+  if (key === 'algorithm') {
+    setAlgorithm(value);
+    return;
+  }
+  onParamChange(key, value);
+  if (key === 'dtPalette') setActivePalette(state.params.dtPalette, state.params.dtColours);
 }
 
 function setAlgorithm(algo) {

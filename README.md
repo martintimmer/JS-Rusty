@@ -97,7 +97,13 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
   to Files, which survives Safari's cleanup of unused site data. **Edit** opens the clip in the normal video path, where
   it is processed at the output size, 1080p by default, with every algorithm and setting.
 - 1080p means the short side is 1080 pixels, so a portrait clip is processed at 1080×1920.
-- Not available in this version: HDR capture, zoom, flash and focus controls. The web camera does not offer them reliably.
+- The strip under the top bar changes the palette and the algorithm, with the same settings as the editor. Live mode opens
+  with the six-colour Apple II palette; Classic Mac OS is the next chip.
+- The lens button cycles through the lenses the browser exposes. Chrome on Android usually lists ultra-wide and
+  telephoto lenses; iPhone Safari often exposes only the rear and front cameras.
+- A tap on the picture shows a focus square. The camera is focused and exposed at that point only where the browser lets
+  the page set it.
+- Not available in this version: HDR capture, and zoom or flash controls.
 - The plan and its checks are in `docs/live-camera-plan.md`. Nothing has been tested on a phone yet.
 
 ---

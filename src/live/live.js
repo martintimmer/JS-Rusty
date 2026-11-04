@@ -1,13 +1,16 @@
-// Live camera mode. The phone camera is shown full screen in portrait, with a dithered preview: the Dither engine at a
-// 480-pixel short side, with the dither settings the user has chosen. Holding the record button records the plain
-// camera picture for up to 10 seconds into the clip library on this device. Opening a clip hands it to the normal
-// video path in app.js, where it is processed at the output size with every setting. Nothing is uploaded.
+// Live camera mode. The phone camera is shown full screen in portrait, with a live preview of the chosen palette and
+// algorithm at a 480-pixel short side. A strip at the top changes the palette and the algorithm (the same settings as
+// the editor). The camera switch button cycles through the lenses the browser exposes. A tap on the picture focuses
+// where the browser allows it. Holding the record button records the plain camera picture for up to 10 seconds into
+// the clip library on this device. Opening a clip hands it to the normal video path in app.js. Nothing is uploaded.
 
 import { createArtwork } from '../rendering/artwork.js';
-import { dtFindPreset } from '../rendering/dither/palettes.js';
+import { DT_PALETTE_LIBRARY } from '../rendering/dither/palettes.js';
 import { pickMp4Mime, pickWebmMime } from '../export/video-exporter.js';
 import { formatBytes } from '../ui.js';
-import { cameraSupported, openCamera, stopCamera, cameraError } from './camera.js';
+import {
+  cameraSupported, listCameras, openLens, stopCamera, cameraError, isFrontLabel, lensName,
+} from './camera.js';
 import { saveClip, listClips, getClip, deleteClip, storageEstimate } from './clip-store.js';
 
 // The preview's short side in pixels: 854×480 for a landscape camera, 480×854 for a portrait one.
@@ -17,16 +20,33 @@ const RECORD_SECONDS = 10;
 const MIN_RECORD_SECONDS = 0.3;
 const RECORD_BITS_PER_SECOND = 8000000;
 
-const METHOD_LABELS = {
-  atkinson: 'Atkinson',
-  'floyd-steinberg': 'Floyd–Steinberg',
-  jjn: 'Jarvis–Judice–Ninke',
-  bayer: 'Bayer 8×8',
-  bayer4: 'Bayer 4×4',
-  random: 'Random threshold',
-  'blue-noise': 'Blue noise',
-  none: 'Direct',
-};
+// Live mode opens with this palette (the six-colour Apple II hi-res palette). The strip starts with it and with the
+// Classic Mac OS palette, then the other presets.
+const FORCED_PALETTE = 'apple-ii';
+const STRIP_PALETTES_FIRST = ['apple-ii', 'classic-mac'];
+
+// The algorithms, in the order of the sidebar.
+const ALGORITHMS = [
+  { id: 'dither', label: 'Dither' },
+  { id: 'waves', label: 'Wave lines' },
+  { id: 'oil', label: 'Oil paint' },
+  { id: 'halftone', label: 'Halftone' },
+  { id: 'ascii', label: 'ASCII' },
+  { id: 'lowpoly', label: 'Low poly' },
+  { id: 'engraving', label: 'Engraving' },
+  { id: 'stippling', label: 'Stippling' },
+  { id: 'contour', label: 'Contour' },
+  { id: 'contour-drawing', label: 'Contour drawing' },
+  { id: 'pencil', label: 'Pencil sketch' },
+  { id: 'linocut', label: 'Linocut' },
+  { id: 'sort', label: 'Pixel sort' },
+];
+
+// Until the camera list is known (before the first permission), two lenses: the rear camera and the front camera.
+const DEFAULT_LENSES = [
+  { facing: 'environment', name: '1×', front: false },
+  { facing: 'user', name: 'Front', front: true },
+];
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,10 +55,10 @@ const live = {
   open: false,
   starting: false,
   switching: false,
-  facing: 'environment',
   stream: null,
   video: null,
   canvas: null,
+  stage: null,
   grabCtx: null,
   W: 0,
   H: 0,
@@ -46,11 +66,16 @@ const live = {
   art: null,
   firstFrame: true,
   startedAt: 0,
+  gen: 0,
   scheduled: false,
-  rafId: 0,
   frames: 0,
   fpsSince: 0,
   renderMs: 0,
+  mirror: false,
+  lenses: DEFAULT_LENSES.slice(),
+  lensIndex: 0,
+  lensesKnown: false,
+  focusTimer: 0,
   recorder: null,
   recStart: 0,
   recTimer: 0,
@@ -60,11 +85,13 @@ const live = {
 
 let statusTimer = 0;
 
-// options: getParams() returns the current settings; onOpenClip(file) opens a clip in the normal editor.
+// options: getParams() returns the current settings; setParam(key, value) changes one (the same as the editor's
+// controls); onOpenClip(file) opens a clip in the normal editor.
 export function initLive(options) {
   live.options = options;
   live.video = $('live-video');
   live.canvas = $('live-canvas');
+  live.stage = $('live-stage');
   const supported = cameraSupported() && window.isSecureContext;
   const openButton = $('btn-live');
   openButton.disabled = !supported;
@@ -75,6 +102,7 @@ export function initLive(options) {
   $('live-close').addEventListener('click', () => closeLive(false));
   $('live-switch').addEventListener('click', switchCamera);
   $('live-library').addEventListener('click', openLibrary);
+  live.stage.addEventListener('pointerdown', onStageTap);
   const record = $('live-record');
   record.addEventListener('pointerdown', onRecordDown);
   record.addEventListener('pointerup', stopRecording);
@@ -97,11 +125,57 @@ export function initLive(options) {
       closeLive(true);
     }
   });
+  buildStrip();
+  updateLensButton();
   updateTimer();
 }
 
 export function isLiveOpen() {
   return live.open;
+}
+
+// ---------- The strip of palettes and algorithms ----------
+
+function stripPalettes() {
+  const first = STRIP_PALETTES_FIRST
+    .map((id) => DT_PALETTE_LIBRARY.find((p) => p.id === id))
+    .filter(Boolean);
+  const rest = DT_PALETTE_LIBRARY.filter((p) => STRIP_PALETTES_FIRST.indexOf(p.id) < 0);
+  return first.concat(rest, [{ id: 'paper-ink', name: 'Paper and ink' }]);
+}
+
+function buildStrip() {
+  const strip = $('live-strip');
+  strip.textContent = '';
+  for (const palette of stripPalettes()) strip.appendChild(stripChip(palette.name, 'palette', palette.id));
+  const separator = document.createElement('span');
+  separator.className = 'live-strip-sep';
+  separator.setAttribute('aria-hidden', 'true');
+  strip.appendChild(separator);
+  for (const algorithm of ALGORITHMS) strip.appendChild(stripChip(algorithm.label, 'algorithm', algorithm.id));
+  updateStrip();
+}
+
+function stripChip(label, kind, id) {
+  const chip = el('button', 'live-chip', label);
+  chip.type = 'button';
+  chip.dataset.kind = kind;
+  chip.dataset.id = id;
+  chip.addEventListener('click', () => {
+    live.options.setParam(kind === 'palette' ? 'dtPalette' : 'algorithm', id);
+    updateStrip();
+  });
+  return chip;
+}
+
+// Marks the palette and the algorithm in use.
+function updateStrip() {
+  const p = live.options.getParams();
+  for (const chip of $('live-strip').querySelectorAll('.live-chip')) {
+    const on = chip.dataset.kind === 'palette' ? p.dtPalette === chip.dataset.id : p.algorithm === chip.dataset.id;
+    chip.classList.toggle('active', on);
+    chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
 }
 
 // ---------- Opening and closing ----------
@@ -113,23 +187,21 @@ async function openLive() {
   live.startedAt = performance.now();
   live.frames = 0;
   live.fpsSince = live.startedAt;
+  live.lensIndex = 0;
   $('live-screen').hidden = false;
-  setPreset();
+  if (live.options.getParams().dtPalette !== FORCED_PALETTE) live.options.setParam('dtPalette', FORCED_PALETTE);
+  updateStrip();
+  updateLensButton();
   setLiveStatus('Starting the camera…', false);
   holdScreenAwake();
   try {
-    live.stream = await openCamera(live.facing);
+    if (!(await startLens(live.lenses[live.lensIndex]))) return;
   } catch (err) {
     setLiveStatus(cameraError(err), true);
     return;
   }
-  if (!live.open) {
-    // Closed while the camera was opening.
-    stopCamera(live.stream);
-    live.stream = null;
-    return;
-  }
   attachStream();
+  refreshLenses();
 }
 
 // Closes live mode and stops the camera. A recording in progress keeps the screen open, unless force is set.
@@ -138,9 +210,8 @@ function closeLive(force) {
   if (live.recorder && !force) return;
   live.open = false;
   live.starting = false;
+  live.gen++;
   live.scheduled = false;
-  if (live.rafId) cancelAnimationFrame(live.rafId);
-  live.rafId = 0;
   stopCamera(live.stream);
   live.stream = null;
   live.video.srcObject = null;
@@ -149,27 +220,37 @@ function closeLive(force) {
   setLiveStatus(null);
 }
 
+// Opens a lens. Returns false when live mode was closed while the camera was opening.
+async function startLens(lens) {
+  const stream = await openLens(lens);
+  if (!live.open) {
+    stopCamera(stream);
+    return false;
+  }
+  live.stream = stream;
+  live.mirror = !!lens.front;
+  return true;
+}
+
+// The camera switch button cycles through the lenses.
 async function switchCamera() {
   if (!live.open || live.recorder || live.switching) return;
   live.switching = true;
-  const next = live.facing === 'environment' ? 'user' : 'environment';
+  live.lensIndex = (live.lensIndex + 1) % live.lenses.length;
+  const lens = live.lenses[live.lensIndex];
   stopCamera(live.stream);
   live.stream = null;
   live.video.srcObject = null;
-  live.facing = next;
   live.starting = true;
-  setLiveStatus('Switching camera…', false);
+  updateLensButton();
+  setLiveStatus('Switching to ' + lens.name + '…', false);
   try {
-    live.stream = await openCamera(next);
+    const ok = await startLens(lens);
+    live.switching = false;
+    if (!ok) return;
   } catch (err) {
     live.switching = false;
     setLiveStatus(cameraError(err), true);
-    return;
-  }
-  live.switching = false;
-  if (!live.open) {
-    stopCamera(live.stream);
-    live.stream = null;
     return;
   }
   live.firstFrame = true;
@@ -183,26 +264,61 @@ function attachStream() {
   video.setAttribute('playsinline', '');
   const playing = video.play();
   if (playing && playing.catch) playing.catch(() => {});
+  // A new stream starts a new frame loop; the loop of the old stream stops at its next callback.
+  live.gen++;
+  live.scheduled = false;
   scheduleNext();
+}
+
+// The lenses the browser exposes. Their labels appear once the permission has been granted, so the list is read after
+// the first camera opens.
+async function refreshLenses() {
+  if (live.lensesKnown) return;
+  const cameras = await listCameras();
+  if (!cameras.length) return;
+  const byZoom = { '0.5×': 0, '1×': 1, '3×': 2 };
+  const rear = cameras
+    .filter((c) => !isFrontLabel(c.label))
+    .map((c) => ({ deviceId: c.deviceId, front: false, name: lensName(c.label) }))
+    .sort((a, b) => (byZoom[a.name] ?? 9) - (byZoom[b.name] ?? 9));
+  const front = cameras
+    .filter((c) => isFrontLabel(c.label))
+    .slice(0, 1)
+    .map((c) => ({ deviceId: c.deviceId, front: true, name: 'Front' }));
+  const lenses = rear.concat(front);
+  if (!lenses.length) return;
+  live.lenses = lenses;
+  live.lensesKnown = true;
+  live.lensIndex = 0;
+  updateLensButton();
+}
+
+function updateLensButton() {
+  const lens = live.lenses[live.lensIndex] || DEFAULT_LENSES[0];
+  const button = $('live-switch');
+  button.textContent = lens.name;
+  button.setAttribute('aria-label', 'Switch lens. Now ' + lens.name);
 }
 
 // ---------- The preview ----------
 
 // Calls onVideoFrame each time the camera presents a new frame (or on the next animation frame where the browser
-// cannot report frames). One callback is pending at a time.
+// cannot report frames). One callback is pending at a time; each callback knows the stream it was made for.
 function scheduleNext() {
   if (!live.open || live.scheduled) return;
   live.scheduled = true;
+  const gen = live.gen;
+  const frame = () => onVideoFrame(gen);
   if (typeof live.video.requestVideoFrameCallback === 'function') {
-    live.video.requestVideoFrameCallback(onVideoFrame);
+    live.video.requestVideoFrameCallback(frame);
   } else {
-    live.rafId = requestAnimationFrame(onVideoFrame);
+    requestAnimationFrame(frame);
   }
 }
 
-function onVideoFrame() {
+function onVideoFrame(gen) {
+  if (gen !== live.gen || !live.open) return;
   live.scheduled = false;
-  if (!live.open) return;
   try {
     processFrame();
   } catch (err) {
@@ -235,9 +351,9 @@ function processFrame() {
   }
 }
 
-// The settings the preview uses: the current dither settings, always with the Dither engine and no motion.
+// The settings the preview uses: the palette and algorithm in use, with no motion layer.
 function liveParams() {
-  return Object.assign({}, live.options.getParams(), { algorithm: 'dither', animation: 'off' });
+  return Object.assign({}, live.options.getParams(), { animation: 'off' });
 }
 
 // Creates the artwork for the camera's size. The data is one frame, replaced on every camera frame.
@@ -273,7 +389,7 @@ function grabFrame() {
   const H = live.H;
   const ctx = live.grabCtx;
   ctx.save();
-  if (live.facing === 'user') {
+  if (live.mirror) {
     ctx.translate(W, 0);
     ctx.scale(-1, 1);
   }
@@ -298,14 +414,60 @@ function grabFrame() {
   }
 }
 
-function setPreset() {
-  const p = live.options.getParams();
-  const method = METHOD_LABELS[p.dtMethod] || 'Dither';
-  const preset = dtFindPreset(p.dtPalette);
-  let palette = 'Paper and ink';
-  if (p.dtPalette === 'custom') palette = 'Custom palette';
-  else if (preset) palette = preset.name;
-  $('live-preset').textContent = 'Dither · ' + method + ' · ' + palette;
+// ---------- Focus ----------
+
+// Where the picture is drawn inside the canvas (the canvas letterboxes it), in screen pixels.
+function pictureRect() {
+  const rect = live.canvas.getBoundingClientRect();
+  const scale = Math.min(rect.width / live.W, rect.height / live.H);
+  const width = live.W * scale;
+  const height = live.H * scale;
+  return {
+    left: rect.left + (rect.width - width) / 2,
+    top: rect.top + (rect.height - height) / 2,
+    width: width,
+    height: height,
+  };
+}
+
+// A tap on the picture shows the focus square, and asks the camera to focus and expose there, where it can.
+function onStageTap(e) {
+  if (!live.open || !live.stream || !live.W) return;
+  const pic = pictureRect();
+  const x = (e.clientX - pic.left) / pic.width;
+  const y = (e.clientY - pic.top) / pic.height;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  const stageRect = live.stage.getBoundingClientRect();
+  showFocusSquare(e.clientX - stageRect.left, e.clientY - stageRect.top);
+  setFocusPoint(x, y);
+}
+
+function showFocusSquare(x, y) {
+  const square = $('live-focus');
+  square.style.left = x + 'px';
+  square.style.top = y + 'px';
+  square.hidden = false;
+  clearTimeout(live.focusTimer);
+  live.focusTimer = setTimeout(() => {
+    square.hidden = true;
+  }, 1000);
+}
+
+// x and y are 0 to 1 across the picture, from the top left. A mirrored (front) picture flips x.
+function setFocusPoint(x, y) {
+  const track = live.stream && live.stream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  const advanced = {};
+  if ('pointsOfInterest' in caps) advanced.pointsOfInterest = [{ x: live.mirror ? 1 - x : x, y: y }];
+  if (caps.focusMode && caps.focusMode.indexOf('single-shot') >= 0) advanced.focusMode = 'single-shot';
+  if (caps.exposureMode && caps.exposureMode.indexOf('single-shot') >= 0) advanced.exposureMode = 'single-shot';
+  if (!Object.keys(advanced).length) {
+    setLiveStatus('This browser does not let the page set focus on this camera. The square marks the tap only.', false, 2500);
+    return;
+  }
+  track.applyConstraints({ advanced: [advanced] }).catch((err) => {
+    setLiveStatus('Focus was not changed: ' + (err.message || err), false, 2500);
+  });
 }
 
 // ---------- Recording ----------

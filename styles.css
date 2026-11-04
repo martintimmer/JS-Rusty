@@ -708,6 +708,38 @@ input[type=range]:disabled { opacity: .4; }
 .live-record.recording .live-record-dot { transform: scale(.55); border-radius: 10px; }
 .live-timer { min-width: 72px; text-align: right; font: 600 14px var(--mono); color: #f4f1ea; }
 
+/* Live mode: the lens button, the spacer, the focus square, and the strip of palettes and algorithms. */
+.live-spacer { flex: 1 1 auto; min-width: 0; }
+.live-lens {
+  appearance: none; flex: none; min-width: 56px; height: 44px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .22); background: rgba(20, 19, 17, .6); color: #f4f1ea;
+  font: 600 14px var(--font); cursor: pointer; touch-action: manipulation;
+}
+.live-lens:disabled { opacity: .4; cursor: not-allowed; }
+/* A horizontal strip of text-only buttons. It scrolls sideways and keeps every choice one swipe away. */
+.live-strip {
+  display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  padding: 0 10px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+}
+.live-strip::-webkit-scrollbar { display: none; }
+.live-chip {
+  appearance: none; flex: none; background: none; border: 0; padding: 8px 10px; cursor: pointer;
+  color: #a9a396; font: 500 14px var(--font); white-space: nowrap; touch-action: manipulation;
+  border-bottom: 2px solid transparent;
+}
+.live-chip.active { color: #f4f1ea; border-bottom-color: #f4f1ea; }
+.live-strip-sep { flex: none; width: 1px; height: 22px; margin: 0 6px; background: rgba(255, 255, 255, .25); }
+/* The focus square at the tap point. It appears over the picture and fades out. */
+.live-focus {
+  position: absolute; width: 76px; height: 76px; margin: -38px 0 0 -38px; pointer-events: none;
+  border: 2px solid #ffd60a; border-radius: 6px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+  animation: live-focus-in .3s ease-out;
+}
+@keyframes live-focus-in {
+  from { transform: scale(1.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
 /* ---------- Clip library (clips recorded in live mode, kept on this device) ---------- */
 .clip-sheet {
   position: fixed; inset: 0; z-index: 980; display: flex; align-items: flex-end; justify-content: center;

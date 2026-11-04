@@ -724,8 +724,8 @@ input[type=range]:disabled { opacity: .4; }
 .clip-meta { font: 11px var(--mono); color: var(--text-muted); }
 .clip-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .clip-actions .btn { margin: 0; }
-.source-buttons { display: inline-flex; gap: 6px; }
-.source-buttons .btn { margin: 0; }
+/* The Live button in the top bar: the accent colour, so it is easy to find on desktop and phone. */
+.live-open { margin: 0; padding: 6px 14px; font-weight: 600; white-space: nowrap; }
 
 /* People who ask for less motion get the finished drawing, still. */
 @media (prefers-reduced-motion: reduce) {

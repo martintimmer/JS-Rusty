@@ -87,7 +87,7 @@ this browser's local storage. On phones and tablets the menus sit in the dock in
 
 ### 2.4 Live camera
 
-The **Live** button beside Open in the Source panel opens the phone camera full screen, in portrait. The preview is the
+The **● Live** button in the top bar opens the phone camera full screen, in portrait. The preview is the
 Dither engine at a 480-pixel short side, with the dither method and palette you have chosen. Press and hold the record
 button to record the plain camera picture, up to 10 seconds; the timer stops the recording at 10 seconds.
 

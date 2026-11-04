@@ -8,7 +8,7 @@ Status: built in the code (src/live/). Not yet tested on a phone, so the phone c
 
 Live mode turns the phone camera into a dithered viewfinder. Hold the record button, get a clip of up to 10 seconds, then edit that clip at full size with every setting.
 
-1. Tap **Live** in the Source panel. The camera opens full screen in portrait, with a dithered preview at 480p.
+1. Tap **Live** in the top bar. The camera opens full screen in portrait, with a dithered preview at 480p.
 2. The preview uses the dither method and palette you chose, so the live look is a preset you can change first.
 3. Press and hold the record button. A timer counts up. Recording stops when you let go, or at 10 seconds.
 4. The clip is kept on the phone, in the website's own storage, and listed in a clip library.
@@ -49,7 +49,7 @@ Proposed modules:
 - `clip-store.js`: saves, lists, reads and deletes clips in IndexedDB.
 - `live-screen.js`: the full-screen layout and its buttons.
 
-Changes to existing code are small: a Live button in the Source panel, and the finished clip handed to the normal video path in app.js. The renderer does not change.
+Changes to existing code are small: a Live button in the top bar, and the finished clip handed to the normal video path in app.js. The renderer does not change.
 
 ## Live screen
 

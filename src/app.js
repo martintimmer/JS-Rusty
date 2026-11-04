@@ -6,7 +6,7 @@ import { createArtwork } from './rendering/artwork.js';
 import { AnimationController } from './rendering/animation-controller.js';
 import { loadImage, imageToFrames } from './media/image-loader.js';
 import { loadVideo, estimateFrameRate } from './media/video-loader.js';
-import { extractFrames } from './media/frame-extractor.js';
+import { extractVideoFrames } from './media/frame-extractor.js';
 import { isTouchDevice, frameBudgetBytes, FRAME_BYTES_PER_PIXEL, MAX_FRAMES } from './device.js';
 import { analyseMotion } from './media/motion-analysis.js';
 import { exportStandaloneJs, downloadBlob } from './export/javascript-exporter.js';
@@ -357,7 +357,7 @@ async function processMedia() {
       UI.setProgress(0.5, 'Decoding image');
       sequence = imageToFrames(media.element, W, H);
     } else {
-      sequence = await extractFrames(video, {
+      sequence = await extractVideoFrames(video, {
         fps: fps,
         width: W,
         height: H,

@@ -95,7 +95,8 @@ button to record the plain camera picture, up to 10 seconds; the timer stops the
   microphone is asked for.
 - Each clip is kept on this device in IndexedDB, in the **Clips** library. It is not uploaded. **Download** saves a copy
   to Files, which survives Safari's cleanup of unused site data. **Edit** opens the clip in the normal video path, where
-  it is processed at the output size, 1080p by default, with every algorithm and setting.
+  it is processed at the output size, 1080p by default, with every algorithm and setting. Recordings often cannot be
+  seeked, so when a clip does not seek the frames are read by playing it through once, which takes about as long as the clip.
 - 1080p means the short side is 1080 pixels, so a portrait clip is processed at 1080×1920.
 - The strip under the top bar changes the palette and the algorithm, with the same settings as the editor. Live mode opens
   with the six-colour Apple II palette; Classic Mac OS is the next chip.

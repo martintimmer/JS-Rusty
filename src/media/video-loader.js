@@ -60,7 +60,8 @@ export async function loadVideo(file, videoEl) {
 
   await waitFor(videoEl, 'loadedmetadata', 15000);
 
-  const duration = videoEl.duration;
+  let duration = videoEl.duration;
+  if (!Number.isFinite(duration)) duration = await probeDuration(videoEl);
   if (!Number.isFinite(duration) || duration <= 0 || !videoEl.videoWidth || !videoEl.videoHeight) {
     URL.revokeObjectURL(url);
     throw new Error('This browser could not decode the video. Try MP4 (H.264) or WebM.');
@@ -81,6 +82,31 @@ export async function loadVideo(file, videoEl) {
     height: videoEl.videoHeight,
     duration: duration,
   };
+}
+
+// Finds the duration of a clip whose file does not state one (MediaRecorder output reports Infinity). Seeking far past
+// the end makes the browser read the file to its end, and then the clip goes back to its start. Returns NaN when the
+// browser has not found the duration within five seconds.
+function probeDuration(videoEl) {
+  return new Promise((resolve) => {
+    let done = false;
+    const onChange = () => {
+      if (Number.isFinite(videoEl.duration)) finish();
+    };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      videoEl.removeEventListener('durationchange', onChange);
+      videoEl.removeEventListener('timeupdate', onChange);
+      videoEl.currentTime = 0;
+      resolve(videoEl.duration);
+    };
+    const timer = setTimeout(finish, 5000);
+    videoEl.addEventListener('durationchange', onChange);
+    videoEl.addEventListener('timeupdate', onChange);
+    videoEl.currentTime = 1e101;
+  });
 }
 
 function waitFor(el, eventName, timeoutMs) {

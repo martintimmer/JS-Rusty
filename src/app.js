@@ -11,21 +11,21 @@ import { isTouchDevice, frameLimit } from './device.js';
 import { analyseMotion } from './media/motion-analysis.js';
 import { exportStandaloneJs, downloadBlob } from './export/javascript-exporter.js';
 import { exportStandaloneHtml } from './export/html-exporter.js';
-import { recordCanvasWebm, pickWebmMime } from './export/video-exporter.js';
+import { recordCanvasWebm, pickWebmMime, recordCanvasVideo, pickMp4Mime, mp4BitsPerSecond, supportedMp4Codecs } from './export/video-exporter.js';
 import { exportStill, exportGif, outputSize } from './export/image-exporter.js';
 import * as UI from './ui.js';
 import { initPalettePanel, setActivePalette } from './palette-panel.js';
 import { initAlgorithmIcons } from './algorithm-icons.js';
 import { initExportDialog, openExportDialog, refreshExportDialog, setExportMessage, isExportDialogOpen } from './export/export-dialog.js';
-import { initLayout } from './layout.js';
+import { initLayout, initUiScale } from './layout.js';
 import { initEmptyStateArt } from './empty-state-art.js';
 
 // Processing boxes: media is fitted inside the box, keeping its aspect ratio.
+// 'original' fits the source at its own size (no downscale). The other choices are the 16:9 heights.
 const RESOLUTIONS = {
   '1080': { w: 1920, h: 1080 },
   '720': { w: 1280, h: 720 },
-  '540': { w: 960, h: 540 },
-  '360': { w: 640, h: 360 },
+  '480': { w: 854, h: 480 },
 };
 const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
@@ -62,12 +62,14 @@ const img = $('orig-img');
 function init() {
   initAlgorithmIcons();
   initLayout();
+  initUiScale();
   initEmptyStateArt();
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   // Phones and tablets: 720p by default, and a tap rather than a drop to choose a file.
   if (isTouchDevice()) {
     $('p-res').value = '720';
+    document.querySelector('.empty-title').textContent = 'Choose a photo or video';
     $('empty-sub').textContent = 'or tap to choose a photo or video · JPG, PNG, WebP, MP4, MOV (video up to 30 s)';
   }
   UI.syncRenderControls(state.params);
@@ -266,7 +268,7 @@ function syncFpsControl() {
   const source = media && media.kind === 'video' ? media.sourceFps : 0;
   input.disabled = auto;
   if (auto && source > 0) input.value = String(source);
-  UI.setText('fps-val', auto ? (source > 0 ? 'Source ' + source + ' fps' : 'source') : input.value + ' fps');
+  UI.setText('fps-val', auto ? (source > 0 ? source + ' fps' : 'auto') : input.value + ' fps');
 }
 
 // The sampling rate used for processing, in frames per second of the clip.
@@ -307,7 +309,8 @@ async function processMedia() {
   syncFpsControl();
   const fps = currentFps();
   // Fit the media inside the chosen resolution box, keeping its aspect ratio.
-  const box = RESOLUTIONS[$('p-res').value] || RESOLUTIONS['1080'];
+  const choice = $('p-res').value;
+  const box = choice === 'original' ? { w: media.width, h: media.height } : (RESOLUTIONS[choice] || RESOLUTIONS['1080']);
   const fit = Math.min(box.w / media.width, box.h / media.height);
   const W = Math.max(16, Math.round((media.width * fit) / 2) * 2);
   const H = Math.max(16, Math.round((media.height * fit) / 2) * 2);
@@ -652,6 +655,7 @@ function bindExports() {
     getSource: exportSource,
     isBusy: () => state.processing || state.recording || state.exporting || state.loading,
     canWebm: !!pickWebmMime(),
+    mp4Codecs: supportedMp4Codecs(),
     onExport: runExportFromDialog,
   });
 }
@@ -680,6 +684,7 @@ function runExportFromDialog(s) {
     case 'jpg': return exportImage('jpg', s);
     case 'gif': return exportGifFile(s);
     case 'webm': return exportWebm();
+    case 'mp4': return exportMp4(s);
     default: return undefined;
   }
 }
@@ -766,6 +771,47 @@ async function exportWebm() {
     });
     downloadBlob('js-rusty-animation.webm', blob);
     setStatus('WebM saved (' + UI.formatBytes(blob.size) + ').', false);
+  } catch (err) {
+    setStatus('Recording failed: ' + err.message, true);
+  } finally {
+    state.controller.setPlaying(wasPlaying);
+    state.recording = false;
+    updateEnabledState();
+    updatePlayButton();
+  }
+}
+
+// MP4 (H.264 or HEVC, whichever the browser records) at the chosen compression level. Like WebM, it records the
+// live canvas, with the animation running.
+async function exportMp4(s) {
+  if (!state.data || state.recording) return;
+  const isVideo = state.media.kind === 'video';
+  if (!isVideo && !isAnimated()) {
+    setStatus('MP4 needs motion: use a video source or turn on an animation type.', true);
+    return;
+  }
+  const mime = pickMp4Mime(s.mp4Codec);
+  if (!mime) {
+    setStatus('This browser cannot record MP4 with that codec.', true);
+    return;
+  }
+  const canvas = $('render-canvas');
+  const bits = mp4BitsPerSecond(canvas.width, canvas.height, s.mp4Level);
+  const codecName = s.mp4Codec === 'hevc' ? 'HEVC' : 'H.264';
+  state.recording = true;
+  updateEnabledState();
+  const wasPlaying = state.controller.playing;
+  const seconds = isVideo ? state.data.duration : 8;
+  try {
+    if (isVideo) state.controller.restartClock();
+    state.controller.markDirty(true);
+    state.controller.setPlaying(true);
+    updatePlayButton();
+    const blob = await recordCanvasVideo(canvas, seconds, mime, bits, (f) => {
+      setStatus('Recording MP4 ' + Math.round(f * 100) + '%…', false);
+    });
+    downloadBlob('js-rusty-animation.mp4', blob);
+    setStatus('MP4 saved (' + codecName + ', ' + UI.formatBytes(blob.size) + ').', false);
   } catch (err) {
     setStatus('Recording failed: ' + err.message, true);
   } finally {

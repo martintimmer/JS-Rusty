@@ -47,6 +47,7 @@ export const RANGE_CONTROLS = [
   { id: 'r-dt-noise', key: 'dtNoise', out: 'dt-noise-val', fmt: (v) => String(Math.round(v)) },
   { id: 'r-dt-grid', key: 'dtGrid', out: 'dt-grid-val', fmt: (v) => Math.round(v) + ' px' },
   { id: 'r-dt-temporal', key: 'dtTemporal', out: 'dt-temporal-val', fmt: (v) => String(Math.round(v)) },
+  { id: 'r-dt-seed', key: 'dtSeed', out: 'dt-seed-val', fmt: (v) => String(Math.round(v)) },
 ];
 
 export const SELECT_CONTROLS = [

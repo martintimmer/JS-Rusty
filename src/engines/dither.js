@@ -207,6 +207,7 @@ export function renderDither(rc) {
   env.hyst = temporal ? 0.25 * opt.temporal : 0;
   env.serpentine = opt.serpentine;
   env.strength = opt.strength;
+  env.seed = opt.seed;
   env.edge = edge;
   env.edgeAmount = opt.edge;
   env.lr = light ? light[0] : null;

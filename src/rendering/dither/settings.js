@@ -74,5 +74,6 @@ export function dtResolveSettings(p) {
     serpentine: p.dtSerpentine === true,
     temporal: pct(p.dtTemporal, 0),
     colourMode: p.grayscale === false && !!colours,
+    seed: Math.round(clamp(num(p.dtSeed, 1), 0, 999)),
   };
 }

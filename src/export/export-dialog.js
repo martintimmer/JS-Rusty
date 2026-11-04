@@ -13,12 +13,13 @@ const $ = (id) => document.getElementById(id);
 const PREVIEW_W = 320;
 const PREVIEW_H = 200;
 
-const FORMAT_ORDER = ['png', 'jpg', 'gif', 'webm', 'html', 'js'];
+const FORMAT_ORDER = ['png', 'jpg', 'gif', 'webm', 'mp4', 'html', 'js'];
 const FORMATS = {
   png: { label: 'PNG', blur: true },
   jpg: { label: 'JPG', blur: true },
   gif: { label: 'GIF', blur: true },
   webm: { label: 'WebM', blur: false },
+  mp4: { label: 'MP4', blur: false },
   html: { label: 'HTML', blur: false },
   js: { label: 'JS', blur: false },
 };
@@ -29,6 +30,7 @@ const SHOWN = {
   jpg: ['raster', 'quality', 'blur'],
   gif: ['raster', 'gif', 'blur'],
   webm: [],
+  mp4: ['mp4'],
   html: ['standalone'],
   js: ['standalone'],
 };
@@ -38,6 +40,7 @@ const NOTES = {
   jpg: 'Blur is applied to the saved file as well as to the preview.',
   gif: '256-colour GIF. Blur is applied to every frame.',
   webm: 'Recorded live from the canvas at its own size. Width and blur do not apply.',
+  mp4: 'Recorded live from the canvas at its own size, as H.264 or HEVC in an MP4 file. Compression sets the bit rate. Width and blur do not apply.',
   html: 'A standalone page that embeds the renderer and the frames. Blur does not apply.',
   js: 'A standalone module that embeds the renderer and the frames. Blur does not apply.',
 };
@@ -45,7 +48,7 @@ const NOTES = {
 // Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
 const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and compressed with zlib. Width and blur do not apply.';
 
-const settings = { format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0 };
+const settings = { format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0, mp4Codec: 'h264', mp4Level: 'medium' };
 let options = null;
 let open = false;
 
@@ -53,6 +56,7 @@ let open = false;
 //   getSource()  -> { canvas, data, isVideo, animated, recordSeconds } for the current artwork, or null
 //   isBusy()     -> true while processing, recording or exporting
 //   canWebm      -> true when the browser can record WebM
+//   mp4Codecs    -> the MP4 codecs ('h264', 'hevc') the browser can record; an empty list hides MP4
 //   onExport(s)  -> runs the export for settings s (returns a promise)
 export function initExportDialog(opts) {
   options = opts;
@@ -68,6 +72,9 @@ export function initExportDialog(opts) {
   $('export-quality').addEventListener('input', onInput);
   $('export-gif-fps').addEventListener('change', onInput);
   $('export-blur').addEventListener('input', onInput);
+  $('export-mp4-codec').addEventListener('change', onInput);
+  $('export-mp4-level').addEventListener('change', onInput);
+  applyMp4Support();
   $('export-close').addEventListener('click', closeExportDialog);
   $('export-cancel').addEventListener('click', closeExportDialog);
   $('export-backdrop').addEventListener('click', (e) => {
@@ -112,6 +119,18 @@ export function setExportMessage(text, isError) {
   el.classList.toggle('error', !!isError);
 }
 
+// Only the MP4 codecs this browser can record are enabled. If the chosen one is not available, the first
+// available one is chosen. With none available, the MP4 format is not offered (see available()).
+function applyMp4Support() {
+  const supported = (options && options.mp4Codecs) || [];
+  const select = $('export-mp4-codec');
+  for (const option of select.options) {
+    option.disabled = supported.indexOf(option.value) < 0;
+  }
+  if (supported.length && supported.indexOf(settings.mp4Codec) < 0) settings.mp4Codec = supported[0];
+  select.value = settings.mp4Codec;
+}
+
 function onInput() {
   readControls();
   refresh();
@@ -123,6 +142,8 @@ function readControls() {
   settings.quality = Number($('export-quality').value);
   settings.gifFps = Number($('export-gif-fps').value);
   settings.blur = Number($('export-blur').value);
+  settings.mp4Codec = $('export-mp4-codec').value;
+  settings.mp4Level = $('export-mp4-level').value;
   $('export-quality-val').textContent = String(settings.quality);
   $('export-blur-val').textContent = settings.blur > 0 ? settings.blur + ' px' : 'Off';
 }
@@ -139,6 +160,8 @@ function runExport() {
     quality: settings.quality / 100,
     gifFps: settings.gifFps,
     blur: FORMATS[format].blur ? settings.blur : 0,
+    mp4Codec: settings.mp4Codec,
+    mp4Level: settings.mp4Level,
   });
   refresh();
   return result;
@@ -149,6 +172,7 @@ function available(format, src) {
   if (!src) return false;
   if (format === 'png' || format === 'jpg') return !src.isVideo;
   if (format === 'webm') return !!options.canWebm && src.animated;
+  if (format === 'mp4') return !!options.mp4Codecs && options.mp4Codecs.length > 0 && src.animated;
   return true;
 }
 
@@ -183,7 +207,7 @@ function dimsFor(src) {
   const d = src.data;
   const format = settings.format;
   if (format === 'png' || format === 'jpg' || format === 'gif') return outputSize(d, settings.width);
-  if (format === 'webm') return { w: d.width, h: d.height };
+  if (format === 'webm' || format === 'mp4') return { w: d.width, h: d.height };
   if (src.packed) return { w: d.width, h: d.height };
   return standaloneSize(d, settings.standaloneWidth);
 }
@@ -199,7 +223,7 @@ function describe(src) {
     const frames = t.frameCount === 1 ? '1 frame' : t.frameCount + ' frames at ' + t.rate.toFixed(1) + ' fps';
     return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still');
   }
-  if (format === 'webm') return size + ' · ' + src.recordSeconds.toFixed(1) + ' s recording';
+  if (format === 'webm' || format === 'mp4') return size + ' · ' + FORMATS[format].label + ' · ' + src.recordSeconds.toFixed(1) + ' s recording';
   return size + ' · standalone · ' + src.data.count + ' frames';
 }
 

@@ -76,6 +76,8 @@ h2 {
 .topbar .brand { justify-self: start; }
 .topbar-view { justify-self: center; }
 .topbar-right { justify-self: end; display: flex; align-items: center; gap: 18px; min-width: 0; }
+/* The interface-size buttons are for phones and tablets only (shown by the phone rules below). */
+.ui-scale { display: none; align-items: center; gap: 4px; }
 
 /* ---------- Sidebars ---------- */
 .sidebar {
@@ -140,7 +142,7 @@ body.is-resizing * { cursor: col-resize !important; user-select: none; -webkit-u
 /* Output: resolution and export on one line, above the algorithms. */
 .output-card {
   margin: 0 0 4px;
-  padding: 14px;
+  padding: 12px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -163,17 +165,31 @@ body.is-resizing * { cursor: col-resize !important; user-select: none; -webkit-u
 .output-hint { margin: 10px 0 0; line-height: 1.45; }
 .output-card .status { margin-top: 10px; }
 
-/* Source: pinned to the bottom of the left sidebar, always visible on desktop. */
+/* Source: pinned to the bottom of the left sidebar, always visible on desktop. Kept compact to save space. */
 .source-dock {
   flex: none;
-  padding: 14px 16px 16px;
+  padding: 10px 14px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
 }
-.source-dock h2 { margin-bottom: 10px; }
-.source-dock .btn.full { margin: 0; }
-.source-dock .info { margin: 12px 0 0; }
-.source-dock .field { margin: 14px 0 0; }
+.source-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.source-head h2 { margin: 0; }
+.source-head .btn { margin: 0; }
+.source-dock .info { margin: 0; gap: 2px 10px; font-size: 11px; line-height: 1.35; }
+/* Frame rate on one line: the label, the value, the rate, and Auto. */
+.fps-row {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: 12px; color: var(--text-muted); white-space: nowrap;
+}
+.fps-row input[type=number] {
+  flex: none; width: 60px; height: 26px; padding: 2px 6px;
+  background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  font-family: var(--mono); font-size: 12px;
+}
+.fps-row input[type=number]:disabled { opacity: .5; }
+.fps-row em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--text); }
+.fps-auto { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
+.fps-auto input { margin: 0; accent-color: var(--text); }
 
 .info { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 12px; }
 .info dt { color: var(--text-muted); }
@@ -402,13 +418,15 @@ input[type=range]:disabled { opacity: .4; }
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .empty-state:focus-visible { outline: 1px solid var(--accent); outline-offset: -12px; }
+/* The drawing sizes itself to the stage it sits in (container units), so it fits small screens and split panes. */
+.empty-state { container-type: size; }
 
 /* The drawing on the empty canvas: a landscape in lines and flat colour. Its colours come from the palette
    presets (src/empty-state-art.js sets --dy-c0 to --dy-c5). Each line draws in (dash offset 1 to 0), holds,
    then erases, on a 10 s loop; delays stagger the parts. Fills fade in and out, dots pop. */
 .dy-art {
   /* Shrinks on short windows so the drawing, caption and text still fit (the artwork is 3:2). */
-  display: block; width: min(340px, 78%, max(180px, calc((100vh - 300px) * 1.5))); height: auto; overflow: visible;
+  display: block; width: min(340px, 78%); width: min(340px, 78cqw, max(160px, calc((100cqh - 150px) * 1.5))); height: auto; overflow: visible;
   --dy-c0: #ece9e2; --dy-c1: #d97757; --dy-c2: #9c978c; --dy-c3: #5f5b52; --dy-c4: #d9b98c; --dy-c5: #b8c4c9;
 }
 .dy-c0 { --dy-col: var(--dy-c0); }
@@ -580,6 +598,58 @@ input[type=range]:disabled { opacity: .4; }
 @supports (padding: env(safe-area-inset-bottom)) {
   .transport { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .sidebar-right { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+}
+
+/* ---------- Phones: compact spacing, a smaller drawing, and an interface size the − and + buttons change ---------- */
+/* The app is scaled with zoom. Viewport heights are divided by the same scale, so the page still fills the screen. */
+@media (max-width: 900px) {
+  .app {
+    zoom: var(--ui-scale, 1);
+    width: calc(100vw / var(--ui-scale, 1));
+    height: calc(100vh / var(--ui-scale, 1));
+    height: calc(100dvh / var(--ui-scale, 1));
+  }
+  .ui-scale { display: inline-flex; }
+  .ui-scale .btn.icon { width: 34px; height: 34px; font-size: 18px; }
+  .topbar { padding: 6px 10px; row-gap: 6px; }
+  .topbar .brand-icon { width: 22px; height: 22px; }
+  .topbar .brand h1 { font-size: 14px; }
+  .topbar .seg { min-height: 34px; padding: 5px 8px; }
+  .topbar .zoom { gap: 4px; font-size: 11px; }
+  .topbar .zoom .btn { min-height: 34px; }
+  .topbar .zoom .btn.icon { width: 34px; height: 34px; }
+  .sidebar-left, .sidebar-right { padding: 8px 10px calc(14px + env(safe-area-inset-bottom)); }
+  .panel { padding: 10px 0; }
+  h2 { margin-bottom: 8px; }
+  .field { margin-bottom: 8px; }
+  .output-card { padding: 8px 10px; }
+  .output-card h2 { margin-bottom: 6px; }
+  .output-row select, .output-row .output-export { min-height: 38px; height: 38px; }
+  .source-dock { padding: 8px 10px 10px; }
+  .source-dock .btn.small { min-height: 34px; }
+  .fps-row { margin-top: 6px; }
+  .fps-row input[type=number] { min-height: 30px; }
+  .algo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .algo-grid .seg { min-height: 66px; padding: 6px 3px 5px; gap: 2px; font-size: 11px; line-height: 1.15; }
+  .algo-grid .seg span { font-size: 9.5px; }
+  .algo-icon { width: 26px; height: 26px; }
+  .algo-icon svg { width: 22px; height: 22px; }
+  .palette-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .palette-tile { min-height: 60px; padding: 5px 3px; font-size: 10.5px; gap: 2px; }
+  .palette-icon { width: 24px; height: 24px; }
+  .palette-icon svg { width: 20px; height: 20px; }
+  .palette-group-title { margin: 8px 0 4px; }
+  .dock-tabs { padding: 6px 8px; gap: 4px; }
+  .dock-tabs .seg { min-height: 40px; padding: 6px 4px; font-size: 13px; }
+  .stage-inner { padding: 8px; }
+  .transport { gap: 6px; padding: 6px 10px; }
+  .status { margin-top: 6px; font-size: 11px; }
+  .empty-state { padding: 10px; }
+  .empty-title { margin-top: 10px; font-size: 15px; }
+  .empty-sub { margin-top: 4px; font-size: 11px; }
+  .dy-caption { margin-top: 10px; padding: 3px 10px 3px 8px; font-size: 10px; }
+  /* The drawing keeps its 3:2 shape and fits between the top of the stage and the caption and text below it. */
+  .dy-art { width: min(280px, 76%); width: min(280px, 76cqw, max(150px, calc((100cqh - 130px) * 1.5))); }
 }
 
 /* People who ask for less motion get the finished drawing, still. */

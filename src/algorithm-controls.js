@@ -10,8 +10,8 @@ const HORIZONTAL = (x) => x.pattern === 'horizontal';
 const DIFFUSION = (x) => ['atkinson', 'floyd-steinberg', 'jjn'].indexOf(x.dtMethod) >= 0;
 // Ordered and random threshold methods: the threshold pattern, which Dither strength scales.
 const ORDERED = (x) => ['bayer', 'bayer4', 'random', 'blue-noise'].indexOf(x.dtMethod) >= 0;
-// Colour from the photo needs a palette from the library (the Dither algorithm reads these two).
-const PALETTE_CHOSEN = (x) => !!x.dtPalette && x.dtPalette !== 'paper-ink';
+// Random threshold: the scatter pattern, which Seed chooses.
+const RANDOM = (x) => x.dtMethod === 'random';
 
 function ctl(label, hint, when) {
   return { label: label, hint: hint, when: when || null };
@@ -94,9 +94,10 @@ const SPEC = {
     density: ctl('Tone gain', 'Contrast applied before dithering (higher = more black and white).'),
     edge: EDGE,
     dtMethod: ctl('Method', 'Error diffusion (Atkinson, Floyd–Steinberg, Jarvis–Judice–Ninke) or ordered (Bayer 8×8 and 4×4, random threshold, blue noise), or none (direct quantisation).'),
+    dtSeed: ctl('Seed', 'The scatter of random threshold dithering. Each seed gives a different pattern; the same seed always gives the same one.', RANDOM),
     dtLevels: ctl('Tonal levels', 'Tones per output (2 = black and white).', PAPER_INK_ONLY),
-    saturation: ctl('Saturation', 'Colour strength of the photo, used when Grayscale is off. 100% is the photograph as it is.', PALETTE_CHOSEN),
-    grayscale: ctl('Grayscale', 'On: palette colours follow the tone (the default). Off: each cell takes the palette colour closest to the photo.', PALETTE_CHOSEN),
+    saturation: ctl('Saturation', 'Colour strength of the photo, used when Grayscale is off and a palette is chosen. 100% is as photographed.'),
+    grayscale: ctl('Grayscale', 'On: palette colours follow the tone (the default). Off: each cell takes the palette colour closest to the photo. Needs a palette.'),
     dtThreshold: ctl('Threshold', 'Tone at which a cell turns to ink. Higher = lighter picture.'),
     dtAdaptive: ctl('Adaptive threshold', 'Each area sets its own threshold from its neighbourhood, keeping detail in dark and bright areas. 0 = global threshold.'),
     dtEdge: ctl('Edge preservation', 'Error leaving a strong edge is reduced, so outlines stay crisp (error diffusion only).', DIFFUSION),
@@ -167,7 +168,7 @@ export const RENDER_CONTROL_KEYS = [
   'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline',
   'dtMethod', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge',
   'dtDiffusion', 'dtSerpentine', 'dtGamma', 'dtNoise', 'dtInvert', 'dtGrid', 'dtTemporal',
-  'saturation', 'grayscale',
+  'saturation', 'grayscale', 'dtSeed',
 ];
 
 // Controls every algorithm has.

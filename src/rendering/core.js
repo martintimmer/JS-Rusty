@@ -6,7 +6,7 @@ import { dtResolveColourSet, dtPaletteInk } from './dither/palettes.js';
 // (see src/export/javascript-exporter.js).
 
 export const DEFAULT_PARAMS = {
-  algorithm: 'engraving',
+  algorithm: 'dither',
   animation: 'off',
   detail: 70,
   density: 75,
@@ -40,6 +40,7 @@ export const DEFAULT_PARAMS = {
   palette: 'sepia',
   background: 'paper',
   // Colour for the Dither engine (with a palette). Grayscale on keeps the original tone-mapped look.
+  dtSeed: 1,                 // random threshold pattern, 1-99: the same seed always gives the same scatter
   saturation: 100,           // colour strength, 0-200 (100 = as photographed)
   grayscale: true,           // true: palettes follow tone. false: palette colours follow the photo's colour
   // Dither engine (src/rendering/dither). These defaults reproduce the original Atkinson, two-tone output.
@@ -59,7 +60,7 @@ export const DEFAULT_PARAMS = {
   dtTemporal: 0,             // temporal stability, 0-100 (0 = off)
 };
 
-const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation'];
+const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
 
 // Canvas pixels per source-frame pixel. 1 = the canvas matches the processing
 // resolution exactly (1920x1080 at 1080p).

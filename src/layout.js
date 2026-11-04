@@ -95,6 +95,48 @@ export function initLayout() {
   window.addEventListener('resize', apply);
 }
 
+// Phones and tablets: the − and + buttons in the top bar make the whole interface smaller or larger. The choice
+// is one of a few fixed steps (the stylesheet scales the app with --ui-scale) and is kept in local storage.
+const UI_SCALE_STEPS = [0.85, 1, 1.15, 1.3];
+const UI_SCALE_KEY = 'js-rusty-ui-scale';
+
+export function initUiScale() {
+  const app = document.getElementById('app');
+  const smaller = document.getElementById('ui-smaller');
+  const larger = document.getElementById('ui-larger');
+  if (!app || !smaller || !larger) return;
+  let step = readScaleStep();
+  const apply = () => {
+    app.style.setProperty('--ui-scale', String(UI_SCALE_STEPS[step]));
+    smaller.disabled = step === 0;
+    larger.disabled = step === UI_SCALE_STEPS.length - 1;
+    try {
+      localStorage.setItem(UI_SCALE_KEY, String(step));
+    } catch (err) {
+      // Storage can be unavailable (private browsing). The size then lasts only for this visit.
+    }
+  };
+  smaller.addEventListener('click', () => {
+    step = Math.max(0, step - 1);
+    apply();
+  });
+  larger.addEventListener('click', () => {
+    step = Math.min(UI_SCALE_STEPS.length - 1, step + 1);
+    apply();
+  });
+  apply();
+}
+
+function readScaleStep() {
+  try {
+    const n = parseInt(localStorage.getItem(UI_SCALE_KEY), 10);
+    if (Number.isInteger(n) && n >= 0 && n < UI_SCALE_STEPS.length) return n;
+  } catch (err) {
+    // Fall through to the default size.
+  }
+  return 1;
+}
+
 function readSaved() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');

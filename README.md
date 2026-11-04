@@ -75,12 +75,12 @@ under the pointer while the view zooms. The + and − buttons step through the z
 
 The left sidebar starts with the **Output** card: the resolution and the **Export…** button on one line. Below it
 are **Algorithm** and **Palette**. The **Source** panel is pinned to the bottom of the left sidebar and stays in view
-while the sections above it scroll. It shows the file and its size, has an **Open image or video…** button, and holds
-the sampling rate for video. The right sidebar holds the settings.
+while the sections above it scroll. It shows the file and its size, has an **Open…** button and, for video, a one-line frame-rate row. The Output card offers Original, 1080p (the default), 720p and 480p. It holds
+The right sidebar holds the settings. Saturation and Grayscale are in Tone, and the seed for random threshold dithering is in the Dither panel.
 
 Drag the thin bar between a sidebar and the canvas to change that sidebar's width. The arrow keys move the bar when it
 has focus (hold Shift for bigger steps), and double-clicking the bar restores the default width. Widths are kept in
-this browser's local storage. On phones and tablets the menus sit in the dock instead, as described above.
+this browser's local storage. On phones and tablets the menus sit in the dock instead, as described above. The − and + buttons in the top bar make the whole interface smaller or larger, and the choice is kept in this browser.
 
 ---
 
@@ -360,12 +360,13 @@ The HTML export wraps the same script in a page that opens from `file://`.
 
 ## 8. Export formats
 
-Every export is made from the export window, opened by the Export button in the Output card at the top of the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, HTML and JS are not blurred.
+Every export is made from the export window, opened by the Export button in the Output card at the top of the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, MP4, HTML and JS are not blurred.
 
 | Format | Content | Notes |
 |---|---|---|
 | Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices) |
 | Standalone JS | `js-rusty-art.js`, for `<script src>` | Same data; `RasterArt.mount()` |
+| MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |
 | GIF | One frame for a still, or an animation when animation is on | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |

@@ -34,6 +34,11 @@
       </div>
 
       <div class="topbar-right">
+        <!-- Phones and tablets: makes the whole interface smaller or larger (hidden on desktop by the stylesheet). -->
+        <div class="ui-scale" role="group" aria-label="Interface size">
+          <button class="btn icon" id="ui-smaller" type="button" title="Smaller interface" aria-label="Smaller interface">−</button>
+          <button class="btn icon" id="ui-larger" type="button" title="Larger interface" aria-label="Larger interface">+</button>
+        </div>
         <div class="zoom">
           <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
           <span id="zoom-val">Fit</span>
@@ -58,35 +63,34 @@
           <h2>Output</h2>
           <div class="output-row">
             <select id="p-res" aria-label="Resolution">
-              <option value="1080" selected>1080p (1920×1080)</option>
-              <option value="720">720p (1280×720)</option>
-              <option value="540">540p (960×540)</option>
-              <option value="360">360p (640×360)</option>
+              <option value="original">Original</option>
+              <option value="1080" selected>1080p</option>
+              <option value="720">720p</option>
+              <option value="480">480p</option>
             </select>
             <button class="btn btn-primary output-export" id="btn-export-open" type="button" disabled>
               <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span>Export…</span>
             </button>
           </div>
-          <p class="muted small output-hint">Format, output size, blur and a preview are in the export window.</p>
           <p class="status" id="status" hidden></p>
         </section>
 
         <section class="panel">
           <h2>Algorithm</h2>
           <div class="algo-grid" id="algorithm-selector" role="radiogroup" aria-label="Algorithm">
-            <button class="seg active" data-algo="engraving" role="radio" aria-checked="true">Engraving <span>Lines</span></button>
+            <button class="seg active" data-algo="dither" role="radio" aria-checked="true">Dither <span>Tones and colours</span></button>
+            <button class="seg" data-algo="waves" role="radio" aria-checked="false">Wave Lines <span>Ridges</span></button>
+            <button class="seg" data-algo="oil" role="radio" aria-checked="false">Oil Paint <span>Kuwahara</span></button>
+            <button class="seg" data-algo="halftone" role="radio" aria-checked="false">Halftone <span>Print</span></button>
+            <button class="seg" data-algo="ascii" role="radio" aria-checked="false">ASCII <span>Glyphs</span></button>
+            <button class="seg" data-algo="lowpoly" role="radio" aria-checked="false">Low Poly <span>Facets</span></button>
+            <button class="seg" data-algo="engraving" role="radio" aria-checked="false">Engraving <span>Lines</span></button>
             <button class="seg" data-algo="stippling" role="radio" aria-checked="false">Stippling <span>Dots</span></button>
             <button class="seg" data-algo="contour" role="radio" aria-checked="false">Contour <span>Line art</span></button>
             <button class="seg" data-algo="contour-drawing" role="radio" aria-checked="false">Contour Drawing <span>Hand-drawn</span></button>
-            <button class="seg" data-algo="lowpoly" role="radio" aria-checked="false">Low Poly <span>Facets</span></button>
-            <button class="seg" data-algo="halftone" role="radio" aria-checked="false">Halftone <span>Print</span></button>
             <button class="seg" data-algo="pencil" role="radio" aria-checked="false">Pencil Sketch <span>Strokes</span></button>
-            <button class="seg" data-algo="waves" role="radio" aria-checked="false">Wave Lines <span>Ridges</span></button>
-            <button class="seg" data-algo="dither" role="radio" aria-checked="false">Dither <span>Tones and colours</span></button>
-            <button class="seg" data-algo="oil" role="radio" aria-checked="false">Oil Paint <span>Kuwahara</span></button>
             <button class="seg" data-algo="linocut" role="radio" aria-checked="false">Linocut <span>Carved</span></button>
-            <button class="seg" data-algo="ascii" role="radio" aria-checked="false">ASCII <span>Glyphs</span></button>
             <button class="seg" data-algo="sort" role="radio" aria-checked="false">Pixel Sort <span>Glitch</span></button>
           </div>
           <p class="muted small" id="algo-note" hidden></p>
@@ -138,8 +142,10 @@
 
       <!-- Source: pinned to the bottom of the left sidebar, always visible on desktop. -->
       <section class="source-dock" id="source-panel" aria-label="Source">
-        <h2>Source</h2>
-        <button class="btn full" id="btn-open" type="button">Open image or video…</button>
+        <div class="source-head">
+          <h2>Source</h2>
+          <button class="btn small" id="btn-open" type="button" title="Open an image or video">Open…</button>
+        </div>
         <dl class="info" id="source-info">
           <dt>File</dt><dd id="info-name">—</dd>
           <dt>Type</dt><dd id="info-type">—</dd>
@@ -147,11 +153,12 @@
           <dt>Duration</dt><dd id="info-duration">—</dd>
           <dt>Processed</dt><dd id="info-processed">—</dd>
         </dl>
-        <label class="field" data-media="video">
-          <span><span>Sampling rate</span> <em id="fps-val">source</em></span>
-          <span><span>Match source frame rate</span> <input type="checkbox" id="p-fps-auto" checked /></span>
-          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled />
-        </label>
+        <div class="fps-row" data-media="video">
+          <span class="fps-label">Frame rate</span>
+          <input type="number" id="p-fps" min="1" max="60" step="any" value="30" disabled aria-label="Frame rate (frames per second)" />
+          <em id="fps-val">source</em>
+          <label class="fps-auto"><input type="checkbox" id="p-fps-auto" checked /> Auto</label>
+        </div>
       </section>
     </aside>
 
@@ -282,6 +289,14 @@
           <span><span class="lbl">Brightness</span> <em id="brightness-val">0</em></span>
           <input type="range" id="r-brightness" min="-100" max="100" value="0" />
         </label>
+        <!-- Colour from the photo: used by the Dither algorithm (see the Dither panel for the method). -->
+        <label class="field" data-ctrl="saturation">
+          <span><span class="lbl">Saturation</span> <em id="saturation-val">100%</em></span>
+          <input type="range" id="r-saturation" min="0" max="200" step="1" value="100" />
+        </label>
+        <label class="field" data-ctrl="grayscale">
+          <span><span class="lbl">Grayscale</span> <input type="checkbox" id="r-grayscale" checked /></span>
+        </label>
       </section>
 
       <section class="panel" data-panel="rendering">
@@ -323,6 +338,10 @@
             <option value="none">None (direct quantisation)</option>
           </select>
         </label>
+        <label class="field" data-ctrl="dtSeed">
+          <span><span class="lbl">Seed</span> <em id="dt-seed-val">1</em></span>
+          <input type="range" id="r-dt-seed" min="1" max="99" step="1" value="1" />
+        </label>
         <label class="field" data-ctrl="dtLevels">
           <span><span class="lbl">Tonal levels</span></span>
           <select id="r-dt-levels">
@@ -332,13 +351,6 @@
             <option value="8">8</option>
             <option value="16">16</option>
           </select>
-        </label>
-        <label class="field" data-ctrl="grayscale">
-          <span><span class="lbl">Grayscale</span> <input type="checkbox" id="r-grayscale" checked /></span>
-        </label>
-        <label class="field" data-ctrl="saturation">
-          <span><span class="lbl">Saturation</span> <em id="saturation-val">100%</em></span>
-          <input type="range" id="r-saturation" min="0" max="200" step="1" value="100" />
         </label>
         <label class="field" data-ctrl="dtThreshold">
           <span><span class="lbl">Threshold</span> <em id="dt-threshold-val">50</em></span>
@@ -524,6 +536,7 @@
           <button class="seg" data-format="jpg" role="radio" aria-checked="false" type="button">JPG</button>
           <button class="seg" data-format="gif" role="radio" aria-checked="false" type="button">GIF</button>
           <button class="seg" data-format="webm" role="radio" aria-checked="false" type="button">WebM</button>
+          <button class="seg" data-format="mp4" role="radio" aria-checked="false" type="button">MP4</button>
           <button class="seg" data-format="html" role="radio" aria-checked="false" type="button">HTML</button>
           <button class="seg" data-format="js" role="radio" aria-checked="false" type="button">JS</button>
         </div>
@@ -556,6 +569,21 @@
             <label class="field" data-export="quality">
               <span><span class="lbl">JPG quality</span> <em id="export-quality-val">92</em></span>
               <input type="range" id="export-quality" min="50" max="100" step="1" value="92" />
+            </label>
+            <label class="field" data-export="mp4">
+              <span><span class="lbl">Codec</span></span>
+              <select id="export-mp4-codec">
+                <option value="h264" selected>MPEG-4 (H.264)</option>
+                <option value="hevc">HEVC (H.265)</option>
+              </select>
+            </label>
+            <label class="field" data-export="mp4">
+              <span><span class="lbl">Compression</span></span>
+              <select id="export-mp4-level">
+                <option value="high">High quality (largest file)</option>
+                <option value="medium" selected>Balanced</option>
+                <option value="small">Small file</option>
+              </select>
             </label>
             <label class="field" data-export="gif">
               <span><span class="lbl">GIF frame rate</span></span>

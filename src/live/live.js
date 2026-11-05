@@ -304,6 +304,8 @@ async function openLive() {
   setChromeHidden(false);
   live.lensIndex = 0;
   $('live-screen').hidden = false;
+  // The editor's animation stops while the camera is open: its own render loop would share the processor with the preview.
+  if (live.options.onOpen) live.options.onOpen();
   if (live.options.getParams().dtPalette !== FORCED_PALETTE) live.options.setParam('dtPalette', FORCED_PALETTE);
   updateStrip();
   updateLensButton();
@@ -325,6 +327,7 @@ function closeLive(force) {
   if (live.recorder && !force) return;
   closeSettings();
   live.open = false;
+  if (live.options.onClose) live.options.onClose();
   live.starting = false;
   live.gen++;
   live.scheduled = false;
@@ -570,10 +573,11 @@ function adaptPreview(work) {
   live.art = null; // rebuilt at the new size on the next frame
 }
 
-// The settings the preview uses: the palette and algorithm in use, with no motion. The preview draws the finest
-// dots (a grid of one canvas pixel); the editor keeps its own grid size.
+// The settings the preview uses: the palette and algorithm in use, with no motion and no optics. The preview draws the
+// finest dots (a grid of one canvas pixel); the editor keeps its own grid size. Halation and chromatic aberration are
+// finishing effects, so the preview leaves them out to stay responsive; the editor applies them to a clip.
 function liveParams() {
-  return Object.assign({}, live.options.getParams(), { animation: 'off', dtGrid: 1 });
+  return Object.assign({}, live.options.getParams(), { animation: 'off', dtGrid: 1, halation: 0, aberration: 0 });
 }
 
 // Creates the artwork for the camera's size. The data is one frame, replaced on every camera frame.

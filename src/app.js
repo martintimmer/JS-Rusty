@@ -66,7 +66,13 @@ function init() {
   initUiScale();
   initEmptyStateArt();
   // Live camera: a clip from the library opens here, in the normal video path, at the output size.
-  initLive({ getParams: () => state.params, setParam: liveSetParam, onOpenClip: (file) => handleFile(file) });
+  initLive({
+    getParams: () => state.params,
+    setParam: liveSetParam,
+    onOpenClip: (file) => handleFile(file),
+    onOpen: pauseEditorForLive,
+    onClose: resumeEditorAfterLive,
+  });
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   $('animation-panel').hidden = !ANIMATIONS_ENABLED;
@@ -572,6 +578,24 @@ function canTogglePlay() {
   if (!state.data || state.recording) return false;
   if (state.media.kind === 'video') return true;
   return isAnimated();
+}
+
+// Live mode draws its own preview. While the camera is open the editor's animation is paused, so its render loop does
+// not compete with the preview; it resumes when Live closes, if it was playing.
+let editorWasPlaying = false;
+
+function pauseEditorForLive() {
+  if (!state.controller) return;
+  editorWasPlaying = !!state.controller.playing;
+  if (editorWasPlaying) state.controller.setPlaying(false);
+  updatePlayButton();
+}
+
+function resumeEditorAfterLive() {
+  if (!state.controller || !editorWasPlaying) return;
+  editorWasPlaying = false;
+  state.controller.setPlaying(true);
+  updatePlayButton();
 }
 
 function togglePlay() {

@@ -193,6 +193,26 @@ structure is not coherent, the direction falls back to horizontal. Pencil and li
 
 ---
 
+### The Edit window: crop, rotate and trim
+
+The **Edit** button sits beside Live. It opens a window that is full screen on a phone and a dialog on a larger screen.
+Photos can be cropped and turned; videos can also be trimmed to a first and a last frame, and cropped the same way.
+
+- **Crop.** Drag the handles or the box, or pinch to resize it. The aspect menu fixes a shape (Freeform, Original,
+  Square, 16:9, 5:7, 4:3, 3:2, 3:4 or 2:3, turned for a portrait picture). A corner keeps the opposite corner in place,
+  and an edge keeps its centre when the shape is fixed.
+- **Rotate.** Each press turns the picture a quarter turn clockwise, with the crop.
+- **Trim** (videos). A filmstrip of frames, with a handle at the first and the last frame. Each handle moves in steps of
+  one frame of the clip's rate, and the trim is at least 0.5 s. The preview plays the trimmed range in a loop.
+- **Revert** returns to the whole picture and the whole clip; **Cancel** leaves everything as it was.
+
+The edit is kept apart from the media (`src/editor/edit-model.js`). Done processes the clip again from the original file,
+with the crop, turn and trim applied in the samplers (`src/media/view.js` draws the view for both photos and videos).
+The Original view follows the trim. A clip the browser cannot seek (a recording from Live) is trimmed at its start by
+playing it through, and its filmstrip is left plain because its frames cannot be read in order.
+
+---
+
 ## 4. The animation model
 
 The animation types change the algorithm's inputs over time, and the algorithm draws each frame again. Nothing is
@@ -404,9 +424,13 @@ src/
   media/
     image-loader.js            still images -> a one-frame sequence
     video-loader.js            <video> loading and the 30-second limit
-    frame-extractor.js         seeks the video; samples frames at display and half size
+    frame-extractor.js         seeks the video; samples frames at display and half size, from the trim's first frame
+    view.js                    the crop and quarter turn of a source, drawn for photos and videos alike
     motion-analysis.js         block matching and frame differences (runs in the worker)
     tone.js                    global auto-levels
+  editor/
+    edit-model.js              the edit (crop, turn, trim) and its rules, without the DOM
+    edit-screen.js             the Edit window: the crop box and handles, the trim filmstrip, the preview
   workers/
     processing-worker.js       runs motion-analysis.js off the main thread
   rendering/

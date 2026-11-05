@@ -7,6 +7,9 @@ import { AnimationController } from './rendering/animation-controller.js';
 import { loadImage, imageToFrames } from './media/image-loader.js';
 import { loadVideo, estimateFrameRate } from './media/video-loader.js';
 import { extractVideoFrames } from './media/frame-extractor.js';
+import { probeVideoColour } from './media/source-colour.js';
+import { createSourceReader, canReadPlanes } from './media/source-frames.js';
+import { needsColourPipeline, describeTags } from './media/colour.js';
 import { isTouchDevice, frameBudgetBytes, FRAME_BYTES_PER_PIXEL, MAX_FRAMES } from './device.js';
 import { analyseMotion } from './media/motion-analysis.js';
 import { exportStandaloneJs, downloadBlob } from './export/javascript-exporter.js';
@@ -210,10 +213,16 @@ async function handleFile(file) {
       }
       video.hidden = false;
       img.hidden = true;
+      // The colour the file declares. HDR or wide-gamut clips are read through the colour reader, so the preview is sRGB
+      // (converted from the clip's own curve and primaries). Where the browser cannot give raw frames, it converts the clip.
+      const colour = await probeVideoColour(file).catch(() => null);
+      const reader = needsColourPipeline(colour) && canReadPlanes() ? createSourceReader(colour) : null;
+      const colourReader = reader && await reader.supports(video) ? reader : null;
       state.media = {
         kind: 'video', name: file.name, size: file.size,
         width: loaded.width, height: loaded.height, duration: loaded.duration,
         url: loaded.url, element: video,
+        colour: colour, colourReader: colourReader,
       };
     }
     // A new file starts with no crop, turn or trim.
@@ -261,6 +270,22 @@ function showSourceInfo() {
   UI.setText('info-size', m.width + '×' + m.height + ' · ' + UI.formatBytes(m.size));
   UI.setText('info-duration', m.kind === 'video' ? m.duration.toFixed(2) + ' s' : '—');
   UI.setText('info-processed', 'No');
+  UI.setText('info-colour', m.kind === 'video' ? colourLine(m.colour) : '—');
+  UI.setText('info-preview', m.kind === 'video' ? previewLine(m) : '—');
+}
+
+// "HEVC · 10-bit · Rec. 2020 · HLG (HDR)", from the file's declared colour.
+function colourLine(colour) {
+  if (!colour) return 'Not readable';
+  const bits = colour.bitDepth ? colour.bitDepth + '-bit · ' : '';
+  return colour.codec + ' · ' + bits + describeTags(colour);
+}
+
+// What the preview shows: sRGB converted from the clip, or the browser's own conversion where it cannot be converted.
+function previewLine(m) {
+  if (m.colourReader) return 'sRGB, converted from the clip’s colour';
+  if (needsColourPipeline(m.colour)) return 'Browser conversion: highlights may clip';
+  return 'sRGB (browser)';
 }
 
 // ---------- Processing pipeline ----------
@@ -380,13 +405,14 @@ async function processMedia() {
         start: trim.start,
         view: view,
         duration: duration,
+        source: media.colourReader || null,
         onProgress: (f) => UI.setProgress(f * 0.6, 'Sampling ' + Math.round(f * 100) + '%'),
       });
     }
 
-    // One tone mapping for the whole sequence, applied to display and analysis frames.
-    // The colour frames get the same tone mapping, so their colours keep the tones of the grey frames.
-    autoLevels([sequence.frames, sequence.analysisFrames, sequence.analysisColour]);
+    // One tone mapping for the whole sequence, applied to display and analysis frames. The colour frames are scaled by
+    // the same mapping of their luminance, so their tones match the grey frames and their hues stay.
+    autoLevels([sequence.frames, sequence.analysisFrames], [sequence.analysisColour]);
 
     let motion = null;
     if (media.kind === 'video') {
@@ -989,7 +1015,7 @@ async function exportImage(format, s) {
   try {
     const size = outputSize(state.data, s.width);
     setStatus('Encoding ' + format.toUpperCase() + ' ' + size.w + '×' + size.h + '…', false);
-    const blob = await exportStill(state.artwork.canvas, format, size.w, size.h, s.quality, undefined, s.blur);
+    const blob = await exportStill(state.artwork.canvas, format, size.w, size.h, s.quality, undefined, s.blur, s.colour);
     downloadBlob('js-rusty-frame.' + format, blob);
     setStatus(format.toUpperCase() + ' saved (' + size.w + '×' + size.h + ', ' +
       UI.formatBytes(blob.size) + ').', false);
@@ -1015,6 +1041,7 @@ async function exportGifFile(s) {
       width: s.width,
       fps: s.gifFps,
       blur: s.blur,
+      colour: s.colour,
       animated: animated,
       loopSeconds: stillLoopSeconds(state.artwork.params.speed),
       // The limit is in megabytes of 1,000,000 bytes, as Finder and Files show file sizes.

@@ -51,11 +51,11 @@ function drawPixels(source, w, h, view) {
   return ctx.getImageData(0, 0, w, h).data;
 }
 
-// Rec. 601 luma using integer arithmetic.
+// Rec. 709 luma (0.2126, 0.7152, 0.0722) using integer arithmetic. The weights are in 1/256 units and sum to 256.
 export function rgbaToGray(rgba, pixels) {
   const out = new Uint8Array(pixels);
   for (let i = 0, j = 0; i < pixels; i++, j += 4) {
-    out[i] = (77 * rgba[j] + 150 * rgba[j + 1] + 29 * rgba[j + 2]) >> 8;
+    out[i] = (54 * rgba[j] + 183 * rgba[j + 1] + 19 * rgba[j + 2]) >> 8;
   }
   return out;
 }

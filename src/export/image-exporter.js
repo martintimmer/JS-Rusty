@@ -8,6 +8,8 @@ import { resolvePalette, clamp, CANVAS_SCALE, STILL_LOOP_SECONDS } from '../rend
 import { dtResolveColourSet } from '../rendering/dither/palettes.js';
 import { encodeGif, gifDeltaRegions, gifRegionBytes } from './gif-encoder.js';
 import { blurRGBA } from './blur.js';
+import { exportConverter } from '../media/colour.js';
+import { buildIccProfile, insertPngIcc, insertJpegIcc } from './icc.js';
 
 export const GIF_MAX_FRAMES = 150;
 
@@ -57,28 +59,73 @@ function scaledCopy(source, w, h, makeCanvas) {
   return out;
 }
 
-// PNG or JPG of a canvas at the given size, with an optional blur radius in output pixels.
-// Resolves to a Blob.
-export function exportStill(source, format, w, h, quality, makeCanvas, blur) {
+// PNG or JPG of a canvas at the given size, with an optional blur radius in output pixels. colour ('srgb', 'rec709' or
+// 'p3') is the colour space of the file: for Rec. 709 or Display P3 the pixels are converted, and the file carries the
+// matching ICC profile. Resolves to a Blob.
+export async function exportStill(source, format, w, h, quality, makeCanvas, blur, colour) {
   const canvas = scaledCopy(source, w, h, makeCanvas || defaultCanvas);
-  if (blur > 0) {
+  const convert = colour ? exportConverter(colour) : null;
+  if (blur > 0 || convert) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const img = ctx.getImageData(0, 0, w, h);
-    blurRGBA(img.data, w, h, blur);
+    if (blur > 0) blurRGBA(img.data, w, h, blur);
+    if (convert) convert.rgbaInPlace(img.data);
     ctx.putImageData(img, 0, 0);
   }
   const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
   const q = format === 'jpg' ? clamp(quality, 0.5, 1) : undefined;
-  return new Promise((resolve, reject) => {
+  const blob = await new Promise((resolve, reject) => {
     if (typeof canvas.toBlob !== 'function') {
       reject(new Error('This browser cannot encode ' + format.toUpperCase() + ' images.'));
       return;
     }
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
+    canvas.toBlob((encoded) => {
+      if (encoded) resolve(encoded);
       else reject(new Error('The browser returned an empty image.'));
     }, mime, q);
   });
+  if (!convert) return blob;
+  return tagBlob(blob, format, colour);
+}
+
+// Adds the colour profile of a Rec. 709 or Display P3 export to a PNG or JPEG.
+async function tagBlob(blob, format, colour) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const profile = buildIccProfile(colour === 'p3' ? 'p3' : 'rec709');
+  const tagged = format === 'jpg' ? insertJpegIcc(bytes, profile) : await insertPngIcc(bytes, profile, deflateBytes);
+  return new Blob([tagged], { type: blob.type });
+}
+
+// zlib-compressed bytes (the PNG iCCP chunk holds the profile this way).
+async function deflateBytes(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// The palette in the export colour space: the paper and ink of the ramp, converted with the pixels.
+function colourPalette(pal, convert) {
+  if (!convert) return pal;
+  return Object.assign({}, pal, { bg: convertTriple(pal.bg, convert), stroke: convertTriple(pal.stroke, convert) });
+}
+
+// A dither palette in the export colour space, so its colours still match the converted pixels.
+function colourSet(set, convert) {
+  if (!set || !convert) return set;
+  const rgb = new Float32Array(set.rgb.length);
+  for (let k = 0; k < set.count; k++) {
+    const out = new Uint8Array(3);
+    convert.rgb(set.rgb[k * 3], set.rgb[k * 3 + 1], set.rgb[k * 3 + 2], out, 0);
+    rgb[k * 3] = out[0] / 255;
+    rgb[k * 3 + 1] = out[1] / 255;
+    rgb[k * 3 + 2] = out[2] / 255;
+  }
+  return Object.assign({}, set, { rgb: rgb });
+}
+
+function convertTriple(rgb, convert) {
+  const out = new Uint8Array(3);
+  convert.rgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, out, 0);
+  return [out[0], out[1], out[2]];
 }
 
 // Maps RGBA pixels to palette indices along the paper-to-ink line (0 = paper, 255 = ink).
@@ -211,9 +258,11 @@ export async function exportGif(opts) {
   const blur = opts.blur || 0;
   const target = opts.targetBytes > 0 ? opts.targetBytes : 0;
   const makeCanvas = opts.makeCanvas || defaultCanvas;
-  const pal = resolvePalette(params);
+  // The export colour space (sRGB unless chosen). A GIF has no colour profile, so its palette is converted with its pixels.
+  const convert = opts.colour ? exportConverter(opts.colour) : null;
+  const pal = colourPalette(resolvePalette(params), convert);
   // A dither palette keeps its own colours. Every other case is the paper-and-ink ramp.
-  const set = params.algorithm === 'dither' ? dtResolveColourSet(params.dtPalette, params.dtColours) : null;
+  const set = colourSet(params.algorithm === 'dither' ? dtResolveColourSet(params.dtPalette, params.dtColours) : null, convert);
   const palette = set ? setGifPalette(set) : gifPalette(pal.bg, pal.stroke);
 
   const timing = gifTiming(data, fps, animated, opts.loopSeconds);
@@ -245,6 +294,7 @@ export async function exportGif(opts) {
       sctx.drawImage(live, 0, 0, size.w, size.h);
       const img = sctx.getImageData(0, 0, size.w, size.h);
       if (blur > 0) blurRGBA(img.data, size.w, size.h, blur);
+      if (convert) convert.rgbaInPlace(img.data);
       frames.push(set ? paletteSetIndices(img.data, set) : paletteIndices(img.data, pal.bg, pal.stroke));
       if (onProgress) onProgress(i + 1, rendered, stage);
       // Yield to the UI now and then, so the page stays responsive during long exports.

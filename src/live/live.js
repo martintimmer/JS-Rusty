@@ -477,7 +477,7 @@ function processFrame() {
   ensureArtwork(size.w, size.h);
   grabFrame();
   // The same tone stretch the editor applies to a clip, so the preview's tones match an editor render of the same settings.
-  autoLevels([live.data.frames, live.data.colour]);
+  autoLevels([live.data.frames], [live.data.colour]);
   // The settings reach the preview only when they change: the signature is cheap to compare.
   const sig = JSON.stringify(live.options.getParams());
   if (sig !== live.paramSig) {
@@ -625,7 +625,7 @@ function grabFrame() {
   const rgba = ctx.getImageData(0, 0, W, H).data;
   const luma = live.data.frames[0];
   for (let i = 0, j = 0; i < W * H; i++, j += 4) {
-    luma[i] = (77 * rgba[j] + 150 * rgba[j + 1] + 29 * rgba[j + 2]) >> 8;
+    luma[i] = (54 * rgba[j] + 183 * rgba[j + 1] + 19 * rgba[j + 2]) >> 8;
   }
   const gw = W / 2;
   const gh = H / 2;

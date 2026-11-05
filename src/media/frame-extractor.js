@@ -7,8 +7,11 @@ import { rgbaToGray, rgbaToRgb } from './image-loader.js';
 
 // Returns { frames, analysisFrames, analysisColour, count, fps, duration }. The rate is the one asked for: every
 // frame at that rate is sampled, so the artwork plays at the clip's own speed. The caller limits the frame count.
+// options.source (optional) is a colour reader (source-frames.js): where it can give a frame, the frame is converted to
+// sRGB first, and the converted picture is drawn instead of the video element.
 export async function extractFrames(video, options) {
   const { fps, width, height, duration, onProgress, view } = options;
+  const source = options.source || null;
   const start = options.start || 0;
   const count = Math.max(1, Math.floor(duration * fps + 1e-6));
   const rate = fps;
@@ -16,6 +19,7 @@ export async function extractFrames(video, options) {
   const ah = height / 2;
   const full = makeContext(width, height);
   const small = makeContext(aw, ah);
+  const picture = source ? document.createElement('canvas') : null;
   const frames = new Array(count);
   const analysisFrames = new Array(count);
   const analysisColour = new Array(count);
@@ -23,9 +27,11 @@ export async function extractFrames(video, options) {
   for (let k = 0; k < count; k++) {
     const t = start + Math.min(k / rate, Math.max(0, duration - 0.02));
     await seekTo(video, t);
-    drawView(full.ctx, video, view, width, height);
+    const converted = source ? await source.draw(video, picture) : false;
+    const from = converted ? picture : video;
+    drawView(full.ctx, from, view, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
-    drawView(small.ctx, video, view, aw, ah);
+    drawView(small.ctx, from, view, aw, ah);
     const smallPx = small.ctx.getImageData(0, 0, aw, ah).data;
     analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
     analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
@@ -78,7 +84,9 @@ function canSeek(video, targetTime) {
 }
 
 // Samples a clip by playing it once, muted, at its own speed. Sample k takes the frame nearest to k / fps, as the
-// browser presents it. A clip that ends before the last sample repeats its last frame.
+// browser presents it. A clip that ends before the last sample repeats its last frame. The colour reader is not used
+// here: a frame is taken inside the playback callback, which cannot wait for a conversion, so the browser converts the
+// colour of a clip that is sampled this way.
 function extractFramesByPlayback(video, options) {
   const { fps, width, height, duration, onProgress, view } = options;
   const start = options.start || 0;

@@ -602,6 +602,10 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 - **Video is limited to 5000 frames** at its chosen rate (a 60 fps clip can be about 83 s). The picture is made smaller,
   not the rate, when the memory budget needs it: 5000 frames at 1080p would need about 18 GB.
 - **Video decoding depends on the browser.** Some MOV (HEVC) files cannot be decoded everywhere; the loader says so.
+  HDR and wide-gamut clips (HLG or PQ, Rec. 2020, such as iPhone HEVC) are converted to sRGB for the preview when the
+  browser hands over the decoded frame planes (WebCodecs). The Source panel shows the colour the file declares and
+  whether the preview is converted. Where it is not, the browser converts the clip and highlights may clip. Movies and
+  HTML/JS pages are written in sRGB; the Colour setting (Rec. 709 or Display P3) applies to PNG, JPG and GIF.
 - **Palettes map tone unless Grayscale is off.** With Grayscale on, a palette chooses colours by tone,
   and hues in the photograph are not carried through. With Grayscale off, only the Dither algorithm follows the
   photograph's colour; the other algorithms still use tone.

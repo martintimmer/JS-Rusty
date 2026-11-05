@@ -27,34 +27,47 @@ const FORMATS = {
 
 // Which option groups each format shows.
 const SHOWN = {
-  png: ['raster', 'blur'],
-  jpg: ['raster', 'quality', 'blur'],
-  gif: ['raster', 'gif', 'blur'],
+  png: ['raster', 'colour', 'blur'],
+  jpg: ['raster', 'quality', 'colour', 'blur'],
+  gif: ['raster', 'gif', 'colour', 'blur'],
   webm: [],
   mp4: ['mp4'],
   html: ['standalone', 'loopRender', 'loopFps', 'loopRepeat'],
   js: ['standalone', 'loopRender', 'loopFps'],
 };
 
+// The colour choices each format can carry. PNG and JPG get a colour profile in the file. A GIF has no profile, so it
+// takes Rec. 709 values only, which a viewer shows as sRGB. Movies and the HTML and JS pages stay sRGB.
+const COLOUR_CHOICES = {
+  png: ['srgb', 'rec709', 'p3'],
+  jpg: ['srgb', 'rec709', 'p3'],
+  gif: ['srgb', 'rec709'],
+};
+const COLOUR_NOTES = {
+  rec709: 'Rec. 709: the colours are encoded with the Rec. 709 curve, and the file says so.',
+  p3: 'Display P3: the colours are converted to the P3 gamut, and the file carries the Display P3 profile.',
+  gifRec709: 'Rec. 709 values in a GIF, which has no colour profile. Viewers show them as sRGB, so the difference is only the curve.',
+};
+
 const NOTES = {
   png: 'Blur is applied to the saved file as well as to the preview.',
   jpg: 'Blur is applied to the saved file as well as to the preview.',
   gif: '256-colour GIF. Blur is applied to every frame.',
-  webm: 'Recorded live from the canvas at its own size. Width and blur do not apply.',
-  mp4: 'Recorded live from the canvas at its own size, as H.264 or HEVC in an MP4 file. Compression sets the bit rate. Width and blur do not apply.',
-  html: 'A standalone page that embeds the renderer and the frames. Blur does not apply.',
-  js: 'A standalone module that embeds the renderer and the frames. Blur does not apply.',
+  webm: 'Recorded live from the canvas at its own size, in sRGB. Width and blur do not apply.',
+  mp4: 'Recorded live from the canvas at its own size, as H.264 or HEVC in an MP4 file, in sRGB. Compression sets the bit rate. Width and blur do not apply.',
+  html: 'A standalone page that embeds the renderer and the frames, in sRGB. Blur does not apply.',
+  js: 'A standalone module that embeds the renderer and the frames, in sRGB. Blur does not apply.',
 };
 
 // Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
-const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and compressed with zlib. Width and blur do not apply.';
+const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and coded losslessly. Width and blur do not apply.';
 // Added to the GIF note when a size limit is set. The export plans the frame rate and width to fit it.
 const GIF_LIMIT_NOTE = 'The frame rate and width are planned to fit the size limit, and the file is checked before it is saved. 1 MB is 1,000,000 bytes.';
 
 // loopMode: 'live' (the page runs the animation) or 'frames' (the page plays a rendered loop); loopFps is that loop's
 // frame rate, and loopRepeat says whether the page repeats it. gifTargetMB is the GIF size limit in megabytes (0 = none).
 const settings = {
-  format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, gifTargetMB: 0, blur: 0, mp4Codec: 'h264', mp4Level: 'medium',
+  format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, gifTargetMB: 0, blur: 0, colour: 'srgb', mp4Codec: 'h264', mp4Level: 'medium',
   loopMode: 'live', loopFps: 12, loopRepeat: true,
 };
 let options = null;
@@ -80,6 +93,7 @@ export function initExportDialog(opts) {
   $('export-quality').addEventListener('input', onInput);
   $('export-gif-fps').addEventListener('change', onInput);
   $('export-gif-limit').addEventListener('change', onInput);
+  $('export-colour').addEventListener('change', onInput);
   $('export-loop-mode').addEventListener('change', onInput);
   $('export-loop-fps').addEventListener('change', onInput);
   $('export-loop-repeat').addEventListener('change', onInput);
@@ -158,6 +172,7 @@ function readControls() {
   settings.loopFps = Number($('export-loop-fps').value);
   settings.loopRepeat = $('export-loop-repeat').value === 'yes';
   settings.blur = Number($('export-blur').value);
+  settings.colour = $('export-colour').value;
   settings.mp4Codec = $('export-mp4-codec').value;
   settings.mp4Level = $('export-mp4-level').value;
   $('export-quality-val').textContent = String(settings.quality);
@@ -180,11 +195,33 @@ function runExport() {
     loopFps: settings.loopFps,
     loopRepeat: settings.loopRepeat,
     blur: FORMATS[format].blur ? settings.blur : 0,
+    colour: colourFor(format, settings.colour),
     mp4Codec: settings.mp4Codec,
     mp4Level: settings.mp4Level,
   });
   refresh();
   return result;
+}
+
+// The colour an export of this format is written in: the chosen one where the format can carry it, otherwise sRGB.
+function colourFor(format, colour) {
+  const choices = COLOUR_CHOICES[format];
+  return choices && choices.indexOf(colour) >= 0 ? colour : 'srgb';
+}
+
+// Shows only the colour choices the current format can carry (Display P3 is not offered for a GIF).
+function syncColour() {
+  const select = $('export-colour');
+  const choices = COLOUR_CHOICES[settings.format] || ['srgb'];
+  for (const option of select.options) option.disabled = choices.indexOf(option.value) < 0;
+  settings.colour = colourFor(settings.format, settings.colour);
+  select.value = settings.colour;
+}
+
+function colourNoteFor(format, colour) {
+  if (colour === 'srgb') return '';
+  if (colour === 'p3') return COLOUR_NOTES.p3;
+  return format === 'gif' ? COLOUR_NOTES.gifRec709 : COLOUR_NOTES.rec709;
 }
 
 // Whether a format can be exported from the current artwork. Stills are PNG and JPG; WebM needs motion.
@@ -225,8 +262,11 @@ function refresh() {
     if (group === 'loopRepeat') show = show && !!src && (src.isVideo || framesOn);
     field.hidden = !show;
   }
+  syncColour();
   let note = packed ? PACKED_NOTE : NOTES[settings.format];
   if (settings.format === 'gif' && settings.gifTargetMB > 0) note += ' ' + GIF_LIMIT_NOTE;
+  const colourNote = colourNoteFor(settings.format, colourFor(settings.format, settings.colour));
+  if (colourNote) note += ' ' + colourNote;
   $('export-note').textContent = note;
   $('export-size').textContent = describe(src);
   $('export-run').disabled = !src || busy || !available(settings.format, src);

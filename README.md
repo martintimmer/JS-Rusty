@@ -469,8 +469,15 @@ Every export is made from the export window, opened by the Export button in the 
 
 | Format | Content | Notes |
 |---|---|---|
-| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices) |
+| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices). Repeat (a rendered loop, or a video) plays again and again, or once. |
 | Standalone JS | `js-rusty-art.js`, for `<script src>` | Same data; `RasterArt.mount()` |
+
+**Loop render** (HTML and JS, animated stills other than Dither). *Live* embeds the engine and runs the animation in the
+page, as before. *Frames* renders one loop of the still at the chosen frame rate (8 to 24 fps) and embeds the frames.
+The page plays them back, so the loop closes exactly as the GIF does and needs no engine in the page. The frames are
+stored as RGB, each as the difference from the one before, then deflated. The number of frames is limited to about
+160 MB of raw frame data, so a long loop or a large width is sampled more slowly: the export window shows the frame
+count, the frame rate it gets, and the loop length. Video and Dither keep their own formats.
 | MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |

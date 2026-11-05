@@ -3,9 +3,15 @@
 
 import { createStandaloneScript, downloadBlob } from './javascript-exporter.js';
 
-export async function exportStandaloneHtml(data, params, filename, maxWidth) {
+// options: loopFps (0 = live; otherwise the frame rate of a rendered loop), repeat (play the loop again and again),
+// onProgress(i, n) for the loop render.
+export async function exportStandaloneHtml(data, params, filename, maxWidth, options) {
+  const extra = options || {};
   const title = 'JS Rusty artwork';
-  const script = await createStandaloneScript(data, params, { title: title, maxWidth: maxWidth });
+  const repeat = extra.repeat !== false;
+  const script = await createStandaloneScript(data, params, {
+    title: title, maxWidth: maxWidth, loopFps: extra.loopFps, onProgress: extra.onProgress,
+  });
   // Prevent the inlined code from closing the script tag early.
   const safeScript = script.replace(/<\/script/gi, '<\\/script');
   const html = [
@@ -29,7 +35,7 @@ export async function exportStandaloneHtml(data, params, filename, maxWidth) {
     safeScript,
     '</script>',
     '<script>',
-    "  RasterArt.mount(document.getElementById('artwork'), { autoplay: true, loop: true });",
+    "  RasterArt.mount(document.getElementById('artwork'), { autoplay: true, loop: " + (repeat ? 'true' : 'false') + " });",
     '</script>',
     '</body>',
     '</html>',

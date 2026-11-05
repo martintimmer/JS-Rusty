@@ -3,10 +3,10 @@
 // exact same engine code), stripped of module syntax, and wrapped in an IIFE that
 // exposes `window.RasterArt.mount(target, options)`.
 //
-// Frame data: 8-bit grayscale at the chosen export width. The first frame is stored
-// whole; each later frame is stored as a byte-wise delta from the one before (mostly
-// zeros for video), then the whole block is deflate-compressed and base64-encoded.
-// Motion vectors are stored as Int8 / Uint8 and base64-encoded.
+// Frame data: 8-bit grayscale at the chosen export width (RGB for a rendered loop). The frames are encoded with the
+// browser's video encoder (WebCodecs) into a 'JSRV' container, which the file decodes again when it loads. Where no
+// video encoder is available, each frame is stored as a byte-wise delta from the one before, and the block is deflated.
+// Motion vectors and colour are deflated, then base64-encoded.
 
 import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, GRID_CELL, resolvePalette, stillLoopSeconds } from '../rendering/core.js';
 import { createArtwork } from '../rendering/artwork.js';
@@ -109,6 +109,124 @@ function stillFrameAt(data, targetW, targetH) {
   return out;
 }
 
+// Video frames. The frames of a standalone file are encoded with the browser's own video encoder (WebCodecs) and packed
+// into a container; the file's decoder reads them back when it loads. The first codec in VIDEO_CODECS that this browser
+// can both encode and decode is used. Where none is, the frames are deflated as before.
+const VIDEO_CODECS = ['vp09.00.41.08', 'avc1.640028'];
+// Bits per pixel per second, for grey frames (the live picture) and colour frames (a rendered loop). This is the
+// starting point, chosen to aim at about 95% below the deflated frames: a higher value gives a sharper picture and a
+// larger file.
+const VIDEO_BPP = { 1: 0.08, 3: 0.2 };
+const VIDEO_MIN_BITRATE = 250000;
+// A key frame at least this often, in seconds.
+const VIDEO_KEY_SECONDS = 2;
+const CONTAINER_MAGIC = [0x4a, 0x53, 0x52, 0x56]; // 'JSRV'
+const CONTAINER_VERSION = 1;
+
+// The export width for a maximum width: never wider than the data, and even, as the video encoders need.
+export function exportWidth(dataWidth, maxWidth) {
+  const w = Math.max(16, Math.min(dataWidth, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
+  return w - (w % 2);
+}
+
+function videoEncoderConfig(codec, w, h, fps, channels) {
+  // The bit rate is worked out for at least 12 frames a second, so a single still gets a fair share of it.
+  const bitrate = Math.max(VIDEO_MIN_BITRATE, Math.round(w * h * Math.max(fps, 12) * VIDEO_BPP[channels]));
+  const config = { codec: codec, width: w, height: h, framerate: fps, bitrate: bitrate, latencyMode: 'quality' };
+  if (codec.indexOf('avc') === 0) config.avc = { format: 'avc' };
+  return config;
+}
+
+// The first codec this browser can both encode and decode at this size, or null when there is none.
+async function chooseVideoCodec(w, h, fps, channels) {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined' || typeof VideoFrame === 'undefined') {
+    return null;
+  }
+  for (const codec of VIDEO_CODECS) {
+    try {
+      const enc = await VideoEncoder.isConfigSupported(videoEncoderConfig(codec, w, h, fps, channels));
+      const dec = await VideoDecoder.isConfigSupported({ codec: codec, codedWidth: w, codedHeight: h });
+      if (enc.supported && dec.supported) return codec;
+    } catch (err) {
+      // Not usable in this form: try the next codec.
+    }
+  }
+  return null;
+}
+
+// Encodes count frames with the browser's video encoder and returns the container (see buildContainer).
+// drawFrame(i, ctx) paints frame i on a w x h canvas. Each frame is encoded as it is drawn, so the raw frames are
+// never all held in memory.
+async function encodeVideoContainer(codec, w, h, fps, channels, count, drawFrame, onProgress) {
+  const records = [];
+  let description = null;
+  let failure = null;
+  const encoder = new VideoEncoder({
+    output: function (chunk, meta) {
+      const dc = meta && meta.decoderConfig;
+      if (!description && dc && dc.description) {
+        const d = dc.description;
+        description = (ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : new Uint8Array(d)).slice();
+      }
+      const bytes = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(bytes);
+      records.push({ key: chunk.type === 'key', index: Math.round((chunk.timestamp * fps) / 1e6), bytes: bytes });
+    },
+    error: function (err) { failure = err; },
+  });
+  try {
+    encoder.configure(videoEncoderConfig(codec, w, h, fps, channels));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const keyEvery = Math.max(1, Math.round(fps * VIDEO_KEY_SECONDS));
+    const duration = Math.round(1e6 / fps);
+    for (let i = 0; i < count; i++) {
+      drawFrame(i, ctx);
+      const frame = new VideoFrame(canvas, { timestamp: Math.round((i * 1e6) / fps), duration: duration });
+      encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      frame.close();
+      if (failure) throw failure;
+      if (onProgress) onProgress(i + 1, count);
+      // Let the encoder and the page catch up now and then.
+      if (i % 4 === 3 || encoder.encodeQueueSize > 4) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await encoder.flush();
+    if (failure) throw failure;
+  } finally {
+    if (encoder.state !== 'closed') encoder.close();
+  }
+  if (records.length !== count) throw new Error('The video encoder returned ' + records.length + ' of ' + count + ' frames.');
+  return buildContainer({ codec: codec, width: w, height: h, fps: fps, count: count, channels: channels }, description, records);
+}
+
+// The container: 'JSRV', a version byte, then a header (u32 length, then its JSON), then one record per frame: the length
+// of its data (u32), a flags byte (1 = key frame), the frame index (u32), and the encoded bytes. Numbers are
+// little-endian. The header names the codec and, for codecs that need one, its decoder description.
+function buildContainer(header, description, records) {
+  const json = new TextEncoder().encode(JSON.stringify(Object.assign({}, header, {
+    description: description ? bytesToBase64(description) : '',
+  })));
+  let size = 9 + json.length;
+  for (const r of records) size += 9 + r.bytes.length;
+  const out = new Uint8Array(size);
+  const view = new DataView(out.buffer);
+  out.set(CONTAINER_MAGIC, 0);
+  out[4] = CONTAINER_VERSION;
+  view.setUint32(5, json.length, true);
+  out.set(json, 9);
+  let pos = 9 + json.length;
+  for (const r of records) {
+    view.setUint32(pos, r.bytes.length, true);
+    out[pos + 4] = r.key ? 1 : 0;
+    view.setUint32(pos + 5, r.index, true);
+    out.set(r.bytes, pos + 9);
+    pos += 9 + r.bytes.length;
+  }
+  return out;
+}
+
 // Loop render. The most raw frame data a rendered loop may hold (about 160 MB), and the most frames it may have.
 export const LOOP_FRAME_BYTES = 160 * 1024 * 1024;
 export const LOOP_FRAME_MAX = 150;
@@ -123,10 +241,11 @@ export function loopFrameTiming(loopSeconds, fps, frameBytes) {
 }
 
 // Renders one loop of an animated still into frames at the export size (the Loop render option). The frames are
-// rendered the way the GIF is: a closed loop, so the last frame leads into the first. Each frame is stored as RGB, as
-// the difference from the one before it, and the whole block is deflated.
+// rendered the way the GIF is: a closed loop, so the last frame leads into the first. Each frame is stored as RGB: as
+// a video-encoded sequence when a video encoder is available, otherwise as the difference from the one before it,
+// deflated.
 export async function encodeLoopFrames(data, params, maxWidth, fps, onProgress) {
-  const targetW = Math.max(16, Math.min(data.width, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
+  const targetW = exportWidth(data.width, maxWidth);
   const targetH = Math.max(16, Math.round((data.height * (targetW / data.width)) / 2) * 2);
   const frameBytes = targetW * targetH * 3;
   const seconds = stillLoopSeconds(params.speed);
@@ -149,12 +268,25 @@ export async function encodeLoopFrames(data, params, maxWidth, fps, onProgress) 
   const art = createArtwork(canvas, small);
   art.setParams(params);
   const ctx = canvas.getContext('2d');
+  const renderFrame = (i) => art.render(i * dt, i === 0 ? 0 : dt, { reset: i === 0, loop: seconds });
+
+  const codec = await chooseVideoCodec(targetW, targetH, timing.rate, 3);
+  if (codec) {
+    const bytes = await encodeVideoContainer(codec, targetW, targetH, timing.rate, 3, count, (i, dst) => {
+      renderFrame(i);
+      dst.drawImage(canvas, 0, 0);
+    }, onProgress);
+    return {
+      mode: 'video', channels: 3, width: targetW, height: targetH, fps: timing.rate, duration: timing.seconds,
+      count: count, frameBytes: frameBytes, frames: bytesToBase64(bytes), motion: null, colour: null,
+    };
+  }
 
   const out = new Uint8Array(count * frameBytes);
   const prev = new Uint8Array(frameBytes);
   const cur = new Uint8Array(frameBytes);
   for (let i = 0; i < count; i++) {
-    art.render(i * dt, i === 0 ? 0 : dt, { reset: i === 0, loop: seconds });
+    renderFrame(i);
     const px = ctx.getImageData(0, 0, targetW, targetH).data;
     for (let k = 0, j = 0; k < px.length; k += 4, j += 3) {
       cur[j] = px[k];
@@ -189,7 +321,7 @@ export async function encodeLoopFrames(data, params, maxWidth, fps, onProgress) 
 }
 
 export async function encodeData(data, maxWidth, withColour) {
-  const targetW = Math.max(16, Math.min(data.width, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
+  const targetW = exportWidth(data.width, maxWidth);
   const scale = targetW / data.width;
   const targetH = Math.max(16, Math.round((data.height * scale) / 2) * 2);
   const n = targetW * targetH;
@@ -205,20 +337,13 @@ export async function encodeData(data, maxWidth, withColour) {
     }
   }
 
-  const packed = new Uint8Array(n * count);
-  let prev = new Uint8Array(n);
-  for (let f = 0; f < count; f++) {
+  // The grey frame f at the export size.
+  const greyFrame = (f) => {
     const src = data.frames[f];
     const cur = new Uint8Array(n);
     for (let i = 0; i < n; i++) cur[i] = src[srcIndex[i]];
-    const base = f * n;
-    if (f === 0) {
-      packed.set(cur, base);
-    } else {
-      for (let i = 0; i < n; i++) packed[base + i] = (cur[i] - prev[i]) & 255;
-    }
-    prev = cur;
-  }
+    return cur;
+  };
 
   let motion = null;
   if (data.motion) {
@@ -233,9 +358,9 @@ export async function encodeData(data, maxWidth, withColour) {
       bs: +(m.bs * scale).toFixed(3),
       bw: m.bw,
       bh: m.bh,
-      vx: bytesToBase64(vx),
-      vy: bytesToBase64(vy),
-      diff: bytesToBase64(m.diff),
+      vx: bytesToBase64(await deflate(vx)),
+      vy: bytesToBase64(await deflate(vy)),
+      diff: bytesToBase64(await deflate(m.diff)),
     };
   }
 
@@ -245,6 +370,40 @@ export async function encodeData(data, maxWidth, withColour) {
     if (bytes) colour = bytesToBase64(await deflate(bytes));
   }
 
+  const codec = await chooseVideoCodec(targetW, targetH, data.fps, 1);
+  if (codec) {
+    // Grey frames: R, G and B hold the same value, so the encoder's luma is the grey value itself.
+    const pixels = new ImageData(targetW, targetH);
+    const px = pixels.data;
+    const bytes = await encodeVideoContainer(codec, targetW, targetH, data.fps, 1, count, (f, dst) => {
+      const cur = greyFrame(f);
+      for (let i = 0, j = 0; i < n; i++, j += 4) {
+        px[j] = cur[i];
+        px[j + 1] = cur[i];
+        px[j + 2] = cur[i];
+        px[j + 3] = 255;
+      }
+      dst.putImageData(pixels, 0, 0);
+    });
+    return {
+      mode: 'video', channels: 1, width: targetW, height: targetH, fps: data.fps, duration: data.duration,
+      count: count, frameBytes: n, frames: bytesToBase64(bytes), motion: motion, colour: colour,
+    };
+  }
+
+  // Without a video encoder: each frame is stored as the difference from the one before it, and the block is deflated.
+  const packed = new Uint8Array(n * count);
+  let prev = new Uint8Array(n);
+  for (let f = 0; f < count; f++) {
+    const cur = greyFrame(f);
+    const base = f * n;
+    if (f === 0) {
+      packed.set(cur, base);
+    } else {
+      for (let i = 0; i < n; i++) packed[base + i] = (cur[i] - prev[i]) & 255;
+    }
+    prev = cur;
+  }
   const compressed = await deflate(packed);
   return {
     width: targetW,
@@ -378,8 +537,8 @@ const DECODER_SOURCE = `
                table: b64ToBytes(d.table), frames: frames };
     });
   }
-  function decodeArtworkData(d) {
-    if (d.mode === 'packed') return decodePacked(d);
+  // Delta frames: inflate, then add each frame's bytes to the frame before it.
+  function decodeDeltaFrames(d) {
     return inflateBytes(b64ToBytes(d.frames)).then(function (packed) {
       var n = d.frameBytes;
       var frames = new Array(d.count);
@@ -391,21 +550,103 @@ const DECODER_SOURCE = `
         for (var i = 0; i < n; i++) cur[i] = (prev[i] + packed[base + i]) & 255;
         frames[f] = cur;
       }
+      return frames;
+    });
+  }
+  // Video frames: the container written by the exporter (see buildContainer). The frames are decoded with the browser's
+  // video decoder and read back as grey (1 channel) or RGB (3 channels), one array per frame.
+  function decodeVideoFrames(d) {
+    var bytes = b64ToBytes(d.frames);
+    if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== 'JSRV' || bytes[4] !== 1) {
+      return Promise.reject(new Error('The frame data is not a JS Rusty video container.'));
+    }
+    if (typeof VideoDecoder === 'undefined' || typeof EncodedVideoChunk === 'undefined') {
+      return Promise.reject(new Error('This browser cannot decode the video frames (WebCodecs is missing).'));
+    }
+    var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    var hlen = view.getUint32(5, true);
+    var header = JSON.parse(new TextDecoder().decode(bytes.subarray(9, 9 + hlen)));
+    var W = header.width, H = header.height, fps = header.fps, count = header.count;
+    var n = W * H, channels = header.channels;
+    var canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var frames = new Array(count);
+    var got = 0;
+    return new Promise(function (resolve, reject) {
+      var config = { codec: header.codec, codedWidth: W, codedHeight: H, optimizeForLatency: true };
+      if (header.description) config.description = b64ToBytes(header.description);
+      var decoder = new VideoDecoder({
+        output: function (frame) {
+          try {
+            var index = Math.round((frame.timestamp * fps) / 1e6);
+            ctx.drawImage(frame, 0, 0, W, H);
+            var px = ctx.getImageData(0, 0, W, H).data;
+            var out = new Uint8Array(n * channels);
+            for (var i = 0; i < n; i++) {
+              if (channels === 1) {
+                out[i] = px[i * 4];
+              } else {
+                out[i * 3] = px[i * 4];
+                out[i * 3 + 1] = px[i * 4 + 1];
+                out[i * 3 + 2] = px[i * 4 + 2];
+              }
+            }
+            if (index >= 0 && index < count) {
+              if (!frames[index]) got++;
+              frames[index] = out;
+            }
+          } catch (err) {
+            reject(err);
+          } finally {
+            frame.close();
+          }
+        },
+        error: function (err) { reject(err); }
+      });
+      decoder.configure(config);
+      var pos = 9 + hlen;
+      while (pos < bytes.length) {
+        var len = view.getUint32(pos, true);
+        var key = (bytes[pos + 4] & 1) === 1;
+        var index = view.getUint32(pos + 5, true);
+        decoder.decode(new EncodedVideoChunk({
+          type: key ? 'key' : 'delta',
+          timestamp: Math.round((index * 1e6) / fps),
+          data: bytes.subarray(pos + 9, pos + 9 + len)
+        }));
+        pos += 9 + len;
+      }
+      decoder.flush().then(function () {
+        decoder.close();
+        if (got === count) resolve(frames);
+        else reject(new Error('The video decoder returned ' + got + ' of ' + count + ' frames.'));
+      }, reject);
+    });
+  }
+  function decodeArtworkData(d) {
+    if (d.mode === 'packed') return decodePacked(d);
+    var framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
+    var motionP = d.motion ? Promise.all([
+      inflateBytes(b64ToBytes(d.motion.vx)),
+      inflateBytes(b64ToBytes(d.motion.vy)),
+      inflateBytes(b64ToBytes(d.motion.diff))
+    ]) : Promise.resolve(null);
+    var colourP = d.colour ? inflateBytes(b64ToBytes(d.colour)) : Promise.resolve(null);
+    return Promise.all([framesP, motionP, colourP]).then(function (r) {
       var motion = null;
-      if (d.motion) {
+      if (r[1]) {
         motion = {
           bs: d.motion.bs, bw: d.motion.bw, bh: d.motion.bh,
-          vx: new Int8Array(b64ToBytes(d.motion.vx).buffer),
-          vy: new Int8Array(b64ToBytes(d.motion.vy).buffer),
-          diff: b64ToBytes(d.motion.diff)
+          vx: new Int8Array(r[1][0].buffer),
+          vy: new Int8Array(r[1][1].buffer),
+          diff: r[1][2]
         };
       }
-      var colourP = d.colour ? inflateBytes(b64ToBytes(d.colour)) : Promise.resolve(null);
-      return colourP.then(function (colourBytes) {
-        return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
-                 count: d.count, frames: frames, motion: motion, colour: colourBytes ? [colourBytes] : null,
-                 frameMode: d.mode === 'frames' };
-      });
+      return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
+               count: d.count, frames: r[0], motion: motion, colour: r[2] ? [r[2]] : null,
+               frameMode: d.mode === 'frames' || (d.mode === 'video' && d.channels === 3) };
     });
   }
 `;

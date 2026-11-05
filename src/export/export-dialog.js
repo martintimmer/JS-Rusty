@@ -48,11 +48,13 @@ const NOTES = {
 
 // Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
 const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and compressed with zlib. Width and blur do not apply.';
+// Added to the GIF note when a size limit is set. The export plans the frame rate and width to fit it.
+const GIF_LIMIT_NOTE = 'The frame rate and width are planned to fit the size limit, and the file is checked before it is saved. 1 MB is 1,000,000 bytes.';
 
 // loopMode: 'live' (the page runs the animation) or 'frames' (the page plays a rendered loop); loopFps is that loop's
-// frame rate, and loopRepeat says whether the page repeats it.
+// frame rate, and loopRepeat says whether the page repeats it. gifTargetMB is the GIF size limit in megabytes (0 = none).
 const settings = {
-  format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0, mp4Codec: 'h264', mp4Level: 'medium',
+  format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, gifTargetMB: 0, blur: 0, mp4Codec: 'h264', mp4Level: 'medium',
   loopMode: 'live', loopFps: 12, loopRepeat: true,
 };
 let options = null;
@@ -77,6 +79,7 @@ export function initExportDialog(opts) {
   $('export-standalone-width').addEventListener('change', onInput);
   $('export-quality').addEventListener('input', onInput);
   $('export-gif-fps').addEventListener('change', onInput);
+  $('export-gif-limit').addEventListener('change', onInput);
   $('export-loop-mode').addEventListener('change', onInput);
   $('export-loop-fps').addEventListener('change', onInput);
   $('export-loop-repeat').addEventListener('change', onInput);
@@ -150,6 +153,7 @@ function readControls() {
   settings.standaloneWidth = Number($('export-standalone-width').value);
   settings.quality = Number($('export-quality').value);
   settings.gifFps = Number($('export-gif-fps').value);
+  settings.gifTargetMB = Number($('export-gif-limit').value);
   settings.loopMode = $('export-loop-mode').value;
   settings.loopFps = Number($('export-loop-fps').value);
   settings.loopRepeat = $('export-loop-repeat').value === 'yes';
@@ -171,6 +175,7 @@ function runExport() {
     standaloneWidth: settings.standaloneWidth,
     quality: settings.quality / 100,
     gifFps: settings.gifFps,
+    gifTargetMB: settings.gifTargetMB,
     loopMode: settings.loopMode,
     loopFps: settings.loopFps,
     loopRepeat: settings.loopRepeat,
@@ -220,7 +225,9 @@ function refresh() {
     if (group === 'loopRepeat') show = show && !!src && (src.isVideo || framesOn);
     field.hidden = !show;
   }
-  $('export-note').textContent = packed ? PACKED_NOTE : NOTES[settings.format];
+  let note = packed ? PACKED_NOTE : NOTES[settings.format];
+  if (settings.format === 'gif' && settings.gifTargetMB > 0) note += ' ' + GIF_LIMIT_NOTE;
+  $('export-note').textContent = note;
   $('export-size').textContent = describe(src);
   $('export-run').disabled = !src || busy || !available(settings.format, src);
   $('export-run').textContent = 'Export ' + FORMATS[settings.format].label;
@@ -246,7 +253,8 @@ function describe(src) {
   if (format === 'gif') {
     const t = gifTiming(src.data, settings.gifFps, src.animated, src.loopSeconds);
     const frames = t.frameCount === 1 ? '1 frame' : t.frameCount + ' frames at ' + t.rate.toFixed(1) + ' fps';
-    return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still');
+    const limit = settings.gifTargetMB > 0 ? ' · up to ' + settings.gifTargetMB + ' MB' : '';
+    return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still') + limit;
   }
   if (format === 'webm' || format === 'mp4') return size + ' · ' + FORMATS[format].label + ' · ' + src.recordSeconds.toFixed(1) + ' s recording';
   if ((format === 'html' || format === 'js') && settings.loopMode === 'frames' && src.animated && !src.isVideo && !src.packed) {

@@ -1008,6 +1008,7 @@ async function exportGifFile(s) {
   updateEnabledState();
   const animated = state.media.kind === 'video' || isAnimated();
   try {
+    const limit = s.gifTargetMB > 0 ? s.gifTargetMB : 0;
     const result = await exportGif({
       data: state.data,
       params: state.artwork.params,
@@ -1016,11 +1017,17 @@ async function exportGifFile(s) {
       blur: s.blur,
       animated: animated,
       loopSeconds: stillLoopSeconds(state.artwork.params.speed),
-      onProgress: (i, n) => setStatus('Rendering GIF frame ' + i + ' of ' + n + '…', false),
+      // The limit is in megabytes of 1,000,000 bytes, as Finder and Files show file sizes.
+      targetBytes: limit * 1000000,
+      onProgress: (i, n, stage) => setStatus((stage ? stage + ' · ' : '') + 'Rendering GIF frame ' + i + ' of ' + n + '…', false),
     });
     downloadBlob('js-rusty-animation.gif', result.blob);
-    setStatus('GIF saved: ' + result.frames + ' frame(s), ' + result.width + '×' + result.height +
-      ', ' + UI.formatBytes(result.blob.size) + '.', false);
+    let message = 'GIF saved: ' + result.frames + ' frame(s) at ' + result.rate.toFixed(1) + ' fps, ' +
+      result.width + '×' + result.height + ', ' + UI.formatBytes(result.blob.size) + '.';
+    if (limit > 0) {
+      message += result.reached ? ' Within the ' + limit + ' MB limit.' : ' Still above the ' + limit + ' MB limit; try a larger limit or a smaller width.';
+    }
+    setStatus(message, false);
   } catch (err) {
     setStatus('GIF export failed: ' + err.message, true);
   } finally {

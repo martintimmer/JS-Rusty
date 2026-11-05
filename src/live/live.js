@@ -20,6 +20,9 @@ import { HAPTIC_SCHEMES, vibrate, startRecordingHaptics, hapticMechanism } from 
 // than FRAME_BUDGET_MS to draw, so the picture keeps its rate (60 frames a second leaves about 16 ms a frame).
 const PREVIEW_STEPS = [480, 400, 320, 256];
 const FRAME_BUDGET_MS = 12;
+// Pacing: after a frame that took t ms, the next camera frame waits t * LIVE_DUTY ms, so the preview keeps about half the
+// processor. Camera frames that come sooner are passed over, which keeps the device cool and the page responsive.
+const LIVE_DUTY = 1;
 // The most the zoom reaches. Holding the record button and sliding up zooms; the zoom crops the picture, so the higher
 // it goes the less detail there is.
 const MAX_ZOOM = 5;
@@ -63,6 +66,7 @@ const $ = (id) => document.getElementById(id);
 
 const live = {
   options: null,
+  nextFrameAt: 0, // performance.now() time before which the next camera frame is passed over (pacing)
   open: false,
   starting: false,
   switching: false,
@@ -299,6 +303,7 @@ async function openLive() {
   live.starting = true;
   live.startedAt = performance.now();
   live.frames = 0;
+  live.nextFrameAt = 0;
   live.fpsSince = live.startedAt;
   live.zoom = 1;
   setChromeHidden(false);
@@ -454,10 +459,12 @@ function scheduleNext() {
 function onVideoFrame(gen) {
   if (gen !== live.gen || !live.open) return;
   live.scheduled = false;
-  try {
-    processFrame();
-  } catch (err) {
-    setLiveStatus('The preview stopped: ' + (err.message || err), true);
+  if (performance.now() >= live.nextFrameAt) {
+    try {
+      processFrame();
+    } catch (err) {
+      setLiveStatus('The preview stopped: ' + (err.message || err), true);
+    }
   }
   scheduleNext();
 }
@@ -482,6 +489,7 @@ function processFrame() {
   live.firstFrame = false;
   live.renderMs = result.ms;
   adaptPreview(performance.now() - t0);
+  live.nextFrameAt = performance.now() + (performance.now() - t0) * LIVE_DUTY;
   if (live.starting) {
     live.starting = false;
     setLiveStatus(null);

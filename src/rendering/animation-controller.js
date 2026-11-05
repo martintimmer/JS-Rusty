@@ -5,6 +5,12 @@
 // Original and Split views in step with this clock. For still images without animation the
 // algorithm renders on demand.
 
+// Render pacing. The next frame waits for RENDER_DUTY times the last frame's time, so a frame that takes 40 ms is
+// followed by a wait of 40 ms: the work takes about half the processor. No more than 30 frames a second are drawn
+// (MIN_RENDER_GAP_MS), so a light frame does not run faster than the eye needs.
+const RENDER_DUTY = 1;
+const MIN_RENDER_GAP_MS = 1000 / 30;
+
 export class AnimationController {
   constructor(options) {
     this.artwork = options.artwork;
@@ -22,6 +28,8 @@ export class AnimationController {
     this.clock = 0;
     this.frameTimes = [];
     this.rafId = null;
+    this.pendingDt = 0; // motion time since the last render, handed to the next one
+    this.nextRenderAt = 0; // performance.now() time before which no render is started
     this.loop = this.loop.bind(this);
   }
 
@@ -68,6 +76,7 @@ export class AnimationController {
   setPlaying(on) {
     this.playing = !!on;
     this.lastNow = null;
+    this.pendingDt = 0;
     this.markDirty(false);
   }
 
@@ -79,6 +88,7 @@ export class AnimationController {
     if (this.playing) {
       this.clock += dt;
       if (this.loopSeconds > 0) this.clock = this.clock % this.loopSeconds;
+      this.pendingDt += dt;
     }
 
     // Video is always continuous while playing. A still renders continuously only when an animation
@@ -86,14 +96,20 @@ export class AnimationController {
     const params = this.artwork.params;
     const animated = params.animation !== 'off';
     const continuous = this.playing && (this.isVideo || animated);
-    if (continuous || this.dirty) {
+    // Renders are paced, for continuous motion and for changes alike, so the processor is not kept busy and the device
+    // does not overheat. A frame that takes long makes the next one wait longer (see RENDER_DUTY). A change of settings is
+    // drawn as soon as the wait is over, and the last change is the one drawn.
+    if ((this.dirty || continuous) && now >= this.nextRenderAt) {
       // A video's motion runs on accumulated time, like a still's, so changing the speed or scrubbing never jumps it.
       // Only a still's loop, while it is recorded, is closed (see stillLoopSeconds).
-      const result = this.artwork.render(this.clock, continuous ? dt : 0,
+      const renderDt = continuous ? this.pendingDt : 0;
+      this.pendingDt = 0;
+      const result = this.artwork.render(this.clock, renderDt,
         { reset: this.forceReset, loop: this.isVideo ? 0 : this.loopSeconds });
       this.dirty = false;
       this.forceReset = false;
       this.trackStats(now, result);
+      this.nextRenderAt = performance.now() + Math.max(MIN_RENDER_GAP_MS, result.ms * RENDER_DUTY);
     }
 
     if (this.onTick) this.onTick(this.clock, this.playing);

@@ -12,6 +12,7 @@ import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, GRID_CELL, resolvePalett
 import { createArtwork } from '../rendering/artwork.js';
 import { dtResolveSettings } from '../rendering/dither/settings.js';
 import { dtPaletteTable } from '../engines/dither.js';
+import { RangeDecoder, codeIndices, encodeIndices } from './ctx-coder.js';
 
 // Concatenation order matters: core primitives first, then engines, then the orchestrator.
 const RUNTIME_MODULES = [
@@ -420,7 +421,8 @@ export async function encodeData(data, maxWidth, withColour) {
 
 // Packed palette indices (Dither). The Dither engine runs for every frame, and each cell's palette index is packed
 // at the smallest bit depth that holds the palette: 1 bit for 2 colours, 2 bits for 3 or 4, 3 bits for 5 to 8, and
-// 4 bits for 9 to 16. The bit stream is compressed with zlib. The standalone file paints the indices with the
+// 4 bits for 9 to 16. The indices are then coded losslessly by the context coder (ctx-coder.js). The standalone file
+// paints the indices with the
 // palette table, so it shows what the app showed, without dithering again at run time.
 export function packedBitsFor(levels) {
   let bits = 1;
@@ -446,23 +448,9 @@ async function encodePacked(data, params) {
     frames.push(Uint8Array.from(r.lattice.index));
   }
   const cells = gw * gh;
-  const stream = new Uint8Array(Math.ceil((cells * data.count * bits) / 8));
-  let acc = 0;
-  let nacc = 0;
-  let pos = 0;
-  for (const frame of frames) {
-    for (let i = 0; i < cells; i++) {
-      acc = (acc << bits) | frame[i];
-      nacc += bits;
-      while (nacc >= 8) {
-        nacc -= 8;
-        stream[pos++] = (acc >> nacc) & 255;
-      }
-      acc &= (1 << nacc) - 1;
-    }
-  }
-  if (nacc > 0) stream[pos++] = (acc << (8 - nacc)) & 255;
-  const compressed = await deflate(stream);
+  const indices = new Uint8Array(cells * data.count);
+  frames.forEach((frame, k) => indices.set(frame, k * cells));
+  const coded = encodeIndices(indices, gw, gh, data.count, bits);
   return {
     mode: 'packed',
     width: data.width * CANVAS_SCALE,
@@ -475,7 +463,7 @@ async function encodePacked(data, params) {
     fps: data.fps,
     duration: data.duration,
     table: bytesToBase64(dtPaletteTable(opt, resolvePalette(p))),
-    frames: bytesToBase64(compressed),
+    frames: bytesToBase64(coded),
   };
 }
 
@@ -513,29 +501,16 @@ const DECODER_SOURCE = `
     var stream = new Blob([bytes]).stream().pipeThrough(ds);
     return new Response(stream).arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
   }
+  // Packed Dither: the indices are decoded with the context coder (codeIndices), and each frame is a view on them.
   function decodePacked(d) {
-    return inflateBytes(b64ToBytes(d.frames)).then(function (stream) {
-      var cells = d.gw * d.gh;
-      var bits = d.bits;
-      var mask = (1 << bits) - 1;
-      var frames = new Array(d.count);
-      var acc = 0, nacc = 0, pos = 0;
-      for (var f = 0; f < d.count; f++) {
-        var cur = new Uint8Array(cells);
-        for (var i = 0; i < cells; i++) {
-          while (nacc < bits) {
-            acc = ((acc << 8) | stream[pos++]) & 0xffffff;
-            nacc += 8;
-          }
-          nacc -= bits;
-          cur[i] = (acc >> nacc) & mask;
-        }
-        frames[f] = cur;
-      }
-      return { packed: true, width: d.width, height: d.height, gw: d.gw, gh: d.gh, bits: bits,
-               levels: d.levels, count: d.count, fps: d.fps, duration: d.duration,
-               table: b64ToBytes(d.table), frames: frames };
-    });
+    var cells = d.gw * d.gh;
+    var data = new Uint8Array(cells * d.count);
+    codeIndices(new RangeDecoder(b64ToBytes(d.frames)), data, d.gw, d.gh, d.count, d.bits, true);
+    var frames = new Array(d.count);
+    for (var f = 0; f < d.count; f++) frames[f] = data.subarray(f * cells, (f + 1) * cells);
+    return { packed: true, width: d.width, height: d.height, gw: d.gw, gh: d.gh, bits: d.bits,
+             levels: d.levels, count: d.count, fps: d.fps, duration: d.duration,
+             table: b64ToBytes(d.table), frames: frames };
   }
   // Delta frames: inflate, then add each frame's bytes to the frame before it.
   function decodeDeltaFrames(d) {
@@ -626,7 +601,7 @@ const DECODER_SOURCE = `
     });
   }
   function decodeArtworkData(d) {
-    if (d.mode === 'packed') return decodePacked(d);
+    if (d.mode === 'packed') return new Promise(function (resolve) { resolve(decodePacked(d)); });
     var framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
     var motionP = d.motion ? Promise.all([
       inflateBytes(b64ToBytes(d.motion.vx)),
@@ -791,6 +766,9 @@ const MOUNT_SOURCE = `
   }
 `;
 
+// The decoder of the context coder, as source text for the standalone file (see ctx-coder.js).
+const CODER_SOURCE = [RangeDecoder, codeIndices].map((f) => f.toString()).join('\n');
+
 // Produces the full JavaScript source for the standalone file.
 export async function createStandaloneScript(data, params, options) {
   const opts = options || {};
@@ -815,6 +793,7 @@ export async function createStandaloneScript(data, params, options) {
     '(function (global) {',
     "  'use strict';",
     runtime,
+    CODER_SOURCE,
     DECODER_SOURCE,
     '  var ARTWORK_DATA = ' + JSON.stringify(payload) + ';',
     '  var ARTWORK_PARAMS = ' + JSON.stringify(p) + ';',

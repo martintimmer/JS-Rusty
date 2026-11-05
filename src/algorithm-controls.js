@@ -6,6 +6,8 @@
 
 const VIDEO = (x) => x.mediaKind === 'video';
 const STILL = (x) => x.mediaKind !== 'video';
+// Feature detail places the triangles' points. The Mosaic draws seeds instead, so it does not read it.
+const NOT_MOSAIC = (x) => x.animation !== 'mosaic';
 const HORIZONTAL = (x) => x.pattern === 'horizontal';
 // Error-diffusion methods only (ordered methods have no error to diffuse).
 const DIFFUSION = (x) => ['atkinson', 'floyd-steinberg', 'jjn'].indexOf(x.dtMethod) >= 0;
@@ -71,7 +73,7 @@ const SPEC = {
     edge: EDGE,
     lpJitter: ctl('Vertex jitter', 'How irregular the point placement is.'),
     lpShades: ctl('Shades', 'Number of different triangle shades.'),
-    lpBias: ctl('Feature detail', 'How strongly facets gather on edges and features (0 = even).'),
+    lpBias: ctl('Feature detail', 'How strongly facets gather on edges and features (0 = even).', NOT_MOSAIC),
     lpGap: ctl('Facet gap', 'Paper gap between triangles.'),
     lpOutline: ctl('Outline', 'Strength of the lines between triangles.'),
   },
@@ -136,27 +138,32 @@ const SPEC = {
 // the algorithm's own controls stay visible. Where a key is in both, the motion's label and hint are shown while
 // that motion is on.
 const TRAIL_HINT = 'Leaves the picture of a moment ago in the tone, so the marks trail behind (stills only).';
+const SPEED_HINT = 'How fast the motion runs: -100 is ten times slower, 0 is the default, +100 ten times faster.';
 const MOTION_SPEC = {
   snake: {
-    speed: ctl('Snake speed', 'How fast the beads run along the strokes (0 = frozen).'),
+    speed: ctl('Animation speed', SPEED_HINT),
     animCount: ctl('Snakes', 'Share of the strokes that carry a snake.'),
     thickness: ctl('Snake width', 'How much thicker a bead is than the stroke it runs along.'),
     motion: ctl('Motion influence', 'On video, how much the bead swells where the picture moves.', VIDEO),
   },
   pulse: {
-    speed: ctl('Pulse rate', 'How fast the contours breathe and the rings travel (0 = frozen).'),
+    speed: ctl('Animation speed', SPEED_HINT),
     velocity: ctl('Pulse depth', 'How far the contours and the rings move.'),
     motion: ctl('Motion influence', 'How strongly video motion adds to the displacement.', VIDEO),
     trail: ctl('Trail', TRAIL_HINT, STILL),
   },
   hover: {
-    speed: ctl('Hover speed', 'How fast the marks float (0 = frozen).'),
+    speed: ctl('Animation speed', SPEED_HINT),
     velocity: ctl('Hover amount', 'How far the marks float.'),
     motion: ctl('Motion influence', 'How strongly video motion pushes the regions.', VIDEO),
     trail: ctl('Trail', TRAIL_HINT, STILL),
   },
+  mosaic: {
+    speed: ctl('Animation speed', SPEED_HINT),
+    velocity: ctl('Drift', 'How far the mosaic seeds drift, so the regions move (0 = still regions).'),
+  },
   ripple: {
-    speed: ctl('Wave speed', 'How fast the wave travels (0 = frozen).'),
+    speed: ctl('Animation speed', SPEED_HINT),
     velocity: ctl('Wave height', 'How high the wave lifts the picture.'),
     direction: ctl('Wave direction', 'Direction the wave drifts in. Fronts still leave the outline.'),
     motion: ctl('Motion influence', 'How strongly video motion adds to the displacement.', VIDEO),
@@ -168,7 +175,7 @@ const MOTION_SPEC = {
 export const RENDER_CONTROL_KEYS = [
   'detail', 'density', 'edge', 'pattern', 'particles', 'animCount', 'motion', 'trail',
   'speed', 'direction', 'velocity', 'thickness', 'contrast', 'brightness',
-  'palette', 'background',
+  'palette', 'background', 'halation', 'halationSize', 'aberration',
   'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen',
   'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing',
   'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline',
@@ -183,6 +190,9 @@ const GLOBAL = {
   brightness: ctl('Brightness', 'Brightness of the source before rendering.'),
   palette: ctl('Palette', 'Ink and paper colours.'),
   background: ctl('Background', 'Paper (light) or ink (dark) background.'),
+  halation: ctl('Halation', 'Light from the bright parts spreads and warms the dark parts around them. Off at 0.'),
+  halationSize: ctl('Halation spread', 'How far the halation spreads.'),
+  aberration: ctl('Chromatic aberration', 'Red and blue part from green toward the edges, as a lens does. Off at 0.'),
 };
 
 // Returns { [controlKey]: { visible, label, hint } } for an algorithm and context.

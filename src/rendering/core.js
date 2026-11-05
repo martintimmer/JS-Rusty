@@ -16,9 +16,12 @@ export const DEFAULT_PARAMS = {
   pattern: 'horizontal',
   particles: 40000,
   animCount: 100,            // Snakes: share of the strokes that carry a snake, in percent
-  speed: 1,
+  speed: 0,                  // Animation speed on a log scale, -100 (ten times slower) to +100 (ten times faster)
   motion: 1,
   trail: 0,                  // Trail: how much of the picture a moment ago stays in the tone, 0-100 (stills only)
+  halation: 0,               // Halation: light from the bright parts spreads into the dark, 0-100 (0 = off)
+  halationSize: 50,          // Halation spread, 0-100
+  aberration: 0,             // Chromatic aberration: red and blue part from green toward the edges, 0-100 (0 = off)
   direction: 0,
   velocity: 1,
   thickness: 1,
@@ -63,7 +66,7 @@ export const DEFAULT_PARAMS = {
   dtTemporal: 0,             // temporal stability, 0-100 (0 = off)
 };
 
-const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'trail', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
+const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'trail', 'halation', 'halationSize', 'aberration', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
 
 // Canvas pixels per source-frame pixel. 1 = the canvas matches the processing
 // resolution exactly (1920x1080 at 1080p).
@@ -78,13 +81,20 @@ export const MAX_ELEMENTS = 80000;
 // GIF or a recording of one loop closes exactly (see motion-field.js).
 export const STILL_LOOP_SECONDS = 6;
 
-// Loop length of an animated still at a Speed. At Speed s the loop is STILL_LOOP_SECONDS / s, so every motion term
-// completes whole cycles at exactly its live rate, and the export matches the picture on screen. The length is kept
-// between 2 s and 12 s (a GIF holds at most 150 frames); outside that the cycles are rounded (see motionFrequency).
+// Animation speed. The Speed slider runs from -100 to +100 on a logarithmic scale: 0 is the speed the animation has
+// by default, +100 is ten times faster, and -100 is ten times slower.
+export const SPEED_RANGE = 100;
+export function animationSpeed(value) {
+  const v = clamp(Number(value) || 0, -SPEED_RANGE, SPEED_RANGE);
+  return Math.pow(10, v / SPEED_RANGE);
+}
+
+// Loop length of an animated still for a Speed value. The loop is STILL_LOOP_SECONDS divided by the speed, so every
+// motion term completes whole cycles at exactly its live rate, and the export matches the picture on screen. The
+// range of the slider gives loops from 0.6 s (ten times faster) to 60 s (ten times slower). A GIF holds at most 150
+// frames, so a long loop is sampled more slowly, and it still covers the whole loop.
 export function stillLoopSeconds(speed) {
-  const s = Math.min(3, Math.max(0, Number(speed) || 0));
-  if (!(s > 0)) return STILL_LOOP_SECONDS;
-  return Math.min(12, Math.max(2, STILL_LOOP_SECONDS / s));
+  return clamp(STILL_LOOP_SECONDS / animationSpeed(speed), 0.5, 60);
 }
 
 const PALETTES = {

@@ -10,15 +10,15 @@ import { clamp, frac, sampleMotion, CANVAS_SCALE, CELL_PX, STILL_LOOP_SECONDS } 
 //       a snake bead, contours sweep their levels and carry a bead, ridges travel, dots float and rings swell.
 //   L2  The still decides where and how strong. The outline of the darkest subject sets where the wave fronts start
 //       (a distance field), and its ink centroid sets the centre of the rings.
-// Time. Each term runs a whole number of cycles per loop (MOTION_BASE at Speed 1). A loop is STILL_LOOP_SECONDS for
-// a still and the clip length for video, so an exported loop (GIF, recording) closes exactly. Live, the clock runs
-// at Speed and the rate is continuous.
+// Time. Each term runs a whole number of cycles per loop (MOTION_BASE at the default speed). A still's loop is
+// STILL_LOOP_SECONDS divided by the speed (see stillLoopSeconds), so an exported loop (GIF, recording) closes exactly.
+// Video and live play run on accumulated time, so the speed can change at any moment without a jump.
 // Names here are shared with the standalone export (see javascript-exporter.js), so they all start with mf or MOTION_.
 
-export const MOTION_TYPES = ['snake', 'pulse', 'hover', 'ripple'];
+export const MOTION_TYPES = ['snake', 'pulse', 'hover', 'ripple', 'mosaic'];
 
 // Cycles per loop at Speed 1 for each term that moves something.
-export const MOTION_BASE = { pulse: 2, hover: 2, ripple: 1 };
+export const MOTION_BASE = { pulse: 2, hover: 2, ripple: 1, mosaic: 2 };
 
 // Trail looks this far back (seconds of motion time) for the picture a moment ago.
 export const MOTION_ECHO_LAG = 0.4;
@@ -34,6 +34,7 @@ const MF_NATIVE = {
   sort: ['pulse'],
   dither: ['pulse'],
   pencil: ['snake'],
+  lowpoly: ['mosaic'],
 };
 
 const mfScratch = new Float32Array(3);
@@ -67,9 +68,9 @@ export function mfTriangle(x) {
   return 1 - Math.abs(2 * frac(x) - 1);
 }
 
-// Frequency in cycles per second of a term. `base` is its cycles per loop at Speed 1. In a loop the cycles are whole
-// numbers, so the term closes at the end of the loop, and Speed 0 holds it still. Live (loop = 0) the clock already
-// carries Speed (see motionTime), so a Speed of 0 freezes the motion where it is rather than jumping it.
+// Frequency in cycles per second of a term. `base` is its cycles per loop at the default speed (multiplier 1), and
+// `speed` is the multiplier from animationSpeed. In a loop the cycles are whole numbers, so the term closes at the end
+// of the loop. Live (loop = 0) the clock already carries the speed (see motionTime), so the rate is the base alone.
 export function motionFrequency(base, speed, loop) {
   if (loop > 0) {
     if (!(speed > 0)) return 0;

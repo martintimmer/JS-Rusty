@@ -174,9 +174,10 @@ export async function exportGif(opts) {
   const timing = gifTiming(data, fps, animated, opts.loopSeconds);
   const frameCount = timing.frameCount;
   const dt = 1 / timing.rate;
-  // The GIF covers exactly frameCount frames, so its loop is that long. Motion closes over this length, and the last
-  // frame leads straight into the first.
-  const loop = animated ? frameCount * dt : 0;
+  // A still's GIF covers exactly frameCount frames, so its loop is that long. Motion closes over this length, and the
+  // last frame leads straight into the first. A video's motion accumulates over its frames, as it does live.
+  const isVideoClip = data.duration > 0;
+  const loop = animated && !isVideoClip ? frameCount * dt : 0;
 
   const live = makeCanvas();
   const art = createArtwork(live, data);

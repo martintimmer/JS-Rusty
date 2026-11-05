@@ -1,4 +1,5 @@
 import { controlsFor } from './algorithm-controls.js';
+import { animationSpeed } from './rendering/core.js';
 
 // DOM helpers and control bindings. Holds no application state of its own.
 
@@ -18,9 +19,12 @@ export const RANGE_CONTROLS = [
   { id: 'r-edge', key: 'edge', out: 'edge-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-particles', key: 'particles', out: 'particles-val', fmt: (v) => String(Math.round(v)) },
   { id: 'r-anim-count', key: 'animCount', out: 'anim-count-val', fmt: (v) => Math.round(v) + '%' },
-  { id: 'r-speed', key: 'speed', out: 'speed-val', fmt: (v) => v.toFixed(2) + '×' },
+  { id: 'r-speed', key: 'speed', out: 'speed-val', fmt: (v) => animationSpeed(v).toFixed(2) + '×' },
   { id: 'r-motion', key: 'motion', out: 'motion-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-trail', key: 'trail', out: 'trail-val', fmt: (v) => Math.round(v) + '%' },
+  { id: 'r-halation', key: 'halation', out: 'halation-val', fmt: (v) => (v > 0 ? Math.round(v) + '%' : 'off') },
+  { id: 'r-halation-size', key: 'halationSize', out: 'halation-size-val', fmt: (v) => Math.round(v) + '%' },
+  { id: 'r-aberration', key: 'aberration', out: 'aberration-val', fmt: (v) => (v > 0 ? Math.round(v) + '%' : 'off') },
   { id: 'r-direction', key: 'direction', out: 'direction-val', fmt: (v) => Math.round(v) + '°' },
   { id: 'r-velocity', key: 'velocity', out: 'velocity-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-thickness', key: 'thickness', out: 'thick-val', fmt: (v) => v.toFixed(1) + ' px' },
@@ -207,6 +211,13 @@ export function applyMediaVisibility(mediaKind, animated) {
     else if (need === 'animated') show = mediaKind === 'video' || !!animated;
     const target = el.closest('.field') || el;
     target.hidden = !show;
+  });
+}
+
+// Shows or hides one animation choice. The Mosaic is offered only for the Low poly algorithm.
+export function setAnimationOptionVisible(type, visible) {
+  document.querySelectorAll('#animation-selector .seg').forEach((btn) => {
+    if (btn.dataset.anim === type) btn.hidden = !visible;
   });
 }
 

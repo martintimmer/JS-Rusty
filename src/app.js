@@ -533,6 +533,9 @@ function setAlgorithm(algo) {
     state.artwork.setParams({ algorithm: algo });
     state.controller.markDirty(true);
   }
+  // Low poly comes with its Mosaic on, which the Animation panel can turn off. Any other algorithm turns it off again.
+  if (algo === 'lowpoly') setAnimation('mosaic');
+  else if (state.params.animation === 'mosaic') setAnimation('off');
   updateEnabledState();
   updatePlayButton();
 }
@@ -1065,6 +1068,7 @@ const ANIMATION_NOTES = {
   pulse: 'The contours breathe, and rings of tone travel out from the darkest mass.',
   hover: 'Each line, dot or region floats on its own phase, so the picture drifts without tearing.',
   ripple: 'Wave fronts leave the subject’s outline and travel outward through the picture.',
+  mosaic: 'Voronoi regions in the picture’s colours, drifting on their own paths, in place of the triangles.',
 };
 
 function animationNote(anim) {
@@ -1083,6 +1087,8 @@ function refreshControls() {
   // The algorithm is always available; a motion type changes its inputs and it draws the frame again.
   UI.setAlgorithmEnabled(true, '');
   UI.setAnimationEnabled(true);
+  // The Mosaic is a Low poly style, so its choice is offered only for that algorithm.
+  UI.setAnimationOptionVisible('mosaic', algo === 'lowpoly');
   UI.setAnimationChoice(anim);
   UI.setAnimationNote(animationNote(anim));
 }

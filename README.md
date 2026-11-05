@@ -226,13 +226,22 @@ The motion works in three layers, cheapest first:
 Rules:
 
 - **Rest.** Off gives the still. With Depth (Velocity) at 0, the picture is the still too, for stills and for video (on
-  video, Motion influence is scaled by Depth as well). Speed 0 freezes
-  the motion where it is, so the picture stays in that pose rather than returning to the still.
+  video, Motion influence is scaled by Depth as well). Off and Depth 0 are the ways to stop the motion; the Animation
+  speed only changes how fast it runs.
+- **Animation speed.** A logarithmic slider from -100 to +100. 0 is the default speed, +100 is ten times faster and
+  -100 is ten times slower (0.1× to 10×). It scales every motion, including the Mosaic's drift.
+- **Mosaic.** Low poly's own animation, offered only for that algorithm. Choosing Low poly turns it on, and the Off
+  choice in the panel turns it back to the triangles. Choosing another algorithm turns it off. Each seed of the Voronoi
+  mosaic keeps its place and drifts on a small circle about it; a region takes the photo's colour at its seed (a shade
+  of the palette when there is no colour). Facet size sets the seed spacing, and Vertex jitter, Drift and Facet gap
+  act on the regions. The standalone file keeps the colour of a still; a video's standalone Mosaic uses palette shades,
+  because the standalone video does not carry its colour frames.
 - **The algorithm stays available** with any motion type. Changing the algorithm keeps the motion on.
-- **Time.** Each term runs a whole number of cycles per loop. A still's loop is 6 s ÷ Speed (2 to 12 s, so 6 s at
-  Speed 1, see `stillLoopSeconds` in `core.js`), and video loops at its clip length. A GIF of a still covers exactly one
-  loop at the live rate, so its last frame leads into its first and moves as fast as the picture on screen. A recording
-  of a still is one loop too. Live, the clock runs continuously at Speed, and changing Speed does not jump the picture.
+- **Time.** Each term runs a whole number of cycles per loop. A still's loop is 6 s divided by the speed (0.6 to 60 s, so
+  6 s at the default speed; see `stillLoopSeconds` in `core.js`). A GIF or a recording of a still covers exactly one
+  loop at the live speed, so its last frame leads into its first and moves as fast as the picture on screen. Live, and
+  for video, the motion runs on accumulated time, so changing the speed or scrubbing a video never jumps the picture.
+  A video's own loop is its clip, so its motion is not closed at the clip's end.
 - **Stills start moving when a motion type is chosen**, and stop when Off is chosen. Play and Pause hold the clock,
   and Restart resets it to zero.
 - **Video** can be animated as well. The motion runs over the clip's own clock, and it loops with the clip. Motion
@@ -283,7 +292,7 @@ engines draw with `Path2D`.
 | Stippling | `stippling.js` | Dots placed by inverse-CDF sampling of darkness (low-discrepancy ranks) and sized by darkness. |
 | Contour | `contour.js` | Marching squares on the ink field, with crossings stitched into continuous polylines. |
 | Contour drawing | `contour-drawing.js` | Marching squares on a smoothed field, stitched into chains. Each chain is a tapered ribbon whose width follows its level (Tone weight), broken and jittered like a hand, with optional hatching in the darkest areas. |
-| Low poly | `lowpoly.js` | Points are drawn from a jittered lattice plus points weighted by the tone gradient (Feature detail), then triangulated by Bowyer–Watson Delaunay. Each triangle is one flat shade of the darkness under its centre. Paper gaps and an optional outline separate the facets. |
+| Low poly | `lowpoly.js` | Points are drawn from a jittered lattice plus points weighted by the tone gradient (Feature detail), then triangulated by Bowyer–Watson Delaunay. Each triangle is one flat shade of the darkness under its centre. Paper gaps and an optional outline separate the facets. With the Mosaic animation (on by default for this algorithm) the facets are drawn as a colourful Voronoi mosaic that drifts instead. |
 | Halftone | `halftone.js` | Hexagonal dot lattice, rotated 15° and jittered, sized by darkness. |
 | Pencil sketch | `pencil.js` | Line integral convolution of a noise texture along the flow field, thresholded against darkness, plus contour outlines and paper grain. |
 | Wave lines | `waves.js` | Rows lifted by darkness, drawn top to bottom with occlusion. |
@@ -358,6 +367,19 @@ order does not affect the result.
 The defaults (Atkinson, PICO-8 palette, every option at zero or off) reproduce the original renderer's output, and a
 check against it was run on several parameter sets.
 
+### Optics: halation and chromatic aberration
+
+Two optional effects, both off by default (strength 0). They act on the finished frame, after the engine has drawn it
+(`src/rendering/optics.js`), so the preview, PNG, GIF, WebM and MP4 exports and the standalone file all carry them.
+
+- **Halation.** The bright parts of the picture give off warm light that spreads into the dark parts around them, as
+  light does in film. Halation is the strength; Halation spread is how far it reaches. It is worked out on a copy a
+  quarter of the frame's size and added back with the Screen blend, so it stays cheap.
+- **Chromatic aberration.** Red is scaled up a little and blue scaled down about the centre, while green stays, so the
+  colours fringe toward the edges, as a lens does. The strength is the reach: at 100 it is about 1.5% of the frame.
+- **Limits.** The packed Dither standalone file paints palette indices, so it carries no optics. Aberration leaves a thin
+  dark border along the frame's edges, where the scaled blue layer no longer covers the frame.
+
 ---
 
 ## 6. Project structure
@@ -392,6 +414,7 @@ src/
     colour.js, palettes.js     sRGB, linear light and OKLab; the palette library and its mix tables
     artwork.js                 owns the canvas and the analysis grid; dispatches the engines
     motion-field.js            motion types: the grid displacement, the time model and the engines' own marks
+    optics.js                  halation and chromatic aberration, applied to the finished frame
     animation-controller.js    requestAnimationFrame loop; playback clock; render-on-change
   engines/                     one file per renderer (section 5)
   export/
@@ -451,7 +474,7 @@ Every export is made from the export window, opened by the Export button in the 
 | MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |
-| GIF | One frame for a still, or an animation when animation is on. A still's animation is one loop of 6 s ÷ Speed (2 to 12 s), which closes | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
+| GIF | One frame for a still, or an animation when animation is on. A still's animation is one loop of 6 s divided by the speed (0.6 to 60 s), which closes | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
 | WebM | A recording of the live canvas | MediaRecorder. MP4 is not offered: no reliable in-browser encoder without extra dependencies. |
 
 The GIF encoder was checked against two independent decoders, on random data (which forces dictionary
@@ -471,7 +494,7 @@ in `src/algorithm-controls.js` and was derived from the engine code.
 | Stippling | Dot concentration | — | yes | Dot size | Dots; motion (video) |
 | Contour | Contour detail | Contour levels | yes | Line weight | motion (video) |
 | Contour drawing | Grid detail | — | yes | Line weight | Levels, smoothing, taper, tone weight, level shading, hand jitter, minimum length, breaks, hatch fill, hatch angle, hatch spacing |
-| Low poly | — | Facet size | yes | — | Vertex jitter, Shades, Feature detail, Facet gap, Outline |
+| Low poly | — | Facet size | yes | — | Vertex jitter, Shades, Feature detail (triangles only), Facet gap, Outline |
 | Halftone | — | Screen pitch | yes | Dot size | — |
 | Pencil sketch | Stroke length | Pressure | yes | — | — |
 | Wave lines | Ridge height | Row pitch | yes | Line weight | — |
@@ -483,14 +506,16 @@ in `src/algorithm-controls.js` and was derived from the engine code.
 
 | Motion type | Algorithm controls | Motion controls | Other |
 |---|---|---|---|
-| Snake | all of the algorithm's | Motion influence (video) | Snake speed, Snakes (share of the strokes, %), Snake width |
-| Pulse | all of the algorithm's | Motion influence (video), Trail (stills) | Pulse rate, Pulse depth |
-| Hover | all of the algorithm's | Motion influence (video), Trail (stills) | Hover speed, Hover amount |
-| Ripple | all of the algorithm's | Motion influence (video), Trail (stills) | Wave speed, Wave height, Wave direction |
+| Mosaic (Low poly only) | all of the algorithm's, drawn as regions | — | Animation speed, Drift |
+| Snake | all of the algorithm's | Motion influence (video) | Animation speed, Snakes (share of the strokes, %), Snake width |
+| Pulse | all of the algorithm's | Motion influence (video), Trail (stills) | Animation speed, Pulse depth |
+| Hover | all of the algorithm's | Motion influence (video), Trail (stills) | Animation speed, Hover amount |
+| Ripple | all of the algorithm's | Motion influence (video), Trail (stills) | Animation speed, Wave height, Wave direction |
 
 Where a motion type and the algorithm use the same control, the motion's label is shown while that motion is on.
 
-Global controls for every algorithm and animation: contrast, brightness, palette and background.
+Global controls for every algorithm and animation: contrast, brightness, palette, background, halation, halation spread
+and chromatic aberration (the Optics panel).
 
 Media rules: the motion influence slider (Stippling, Contour, and the Pulse, Hover, Ripple and Snake types) appears only for
 video, because it needs motion data. Animation types are offered for stills and video. Video-only items

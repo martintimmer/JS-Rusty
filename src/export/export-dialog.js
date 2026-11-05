@@ -53,7 +53,7 @@ let options = null;
 let open = false;
 
 // options:
-//   getSource()  -> { canvas, data, isVideo, animated, recordSeconds } for the current artwork, or null
+//   getSource()  -> { canvas, data, isVideo, animated, loopSeconds, recordSeconds } for the current artwork, or null
 //   isBusy()     -> true while processing, recording or exporting
 //   canWebm      -> true when the browser can record WebM
 //   mp4Codecs    -> the MP4 codecs ('h264', 'hevc') the browser can record; an empty list hides MP4
@@ -219,7 +219,7 @@ function describe(src) {
   const format = settings.format;
   if (format === 'png' || format === 'jpg') return size + ' · ' + FORMATS[format].label;
   if (format === 'gif') {
-    const t = gifTiming(src.data, settings.gifFps, src.animated);
+    const t = gifTiming(src.data, settings.gifFps, src.animated, src.loopSeconds);
     const frames = t.frameCount === 1 ? '1 frame' : t.frameCount + ' frames at ' + t.rate.toFixed(1) + ' fps';
     return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still');
   }

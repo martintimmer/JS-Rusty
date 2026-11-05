@@ -1,5 +1,6 @@
 import { clamp, smoothstep, lerp, clampIndex, CELL_PX } from '../rendering/core.js';
 import { buildFlow, createFlowBuffers } from '../rendering/flow.js';
+import { mfActive, mfHash, mfSnake, mfSwell } from '../rendering/motion-field.js';
 
 // Pencil sketch.
 // 1) A fixed white-noise texture is smeared along the contour direction (line integral
@@ -17,6 +18,85 @@ for (let i = 0; i < PENCIL_GRAIN_SIZE; i++) {
   PENCIL_GRAIN[i] = (s - Math.floor(s)) - 0.5;
 }
 
+// Snake (pencil). Streamlines are traced along the flow, from seeds on the darkest cells, the way a pencil line runs
+// across a drawing. Each snake is one streamline, and its bead is a stretch of extra graphite that runs along it.
+const PN_STREAMS = 500; // streamlines at 100 %, the Snakes share chooses which carry a bead
+const PN_STEPS = 170; // streamline length, in steps
+const PN_STEP = 0.9; // step length, in grid cells
+const PN_TAIL = 18; // bead length, in steps
+
+// Traces every streamline into state.pnCells (cell indices), with its start and length.
+function pnTrace(state, F, gw, gh, ink) {
+  if (!state.pnCells) {
+    state.pnCells = new Int32Array(PN_STREAMS * PN_STEPS);
+    state.pnStart = new Int32Array(PN_STREAMS);
+    state.pnLen = new Int32Array(PN_STREAMS);
+  }
+  const cells = state.pnCells;
+  let w = 0;
+  for (let s = 0; s < PN_STREAMS; s++) {
+    let sx = 0;
+    let sy = 0;
+    for (let tries = 0; tries < 6; tries++) {
+      sx = Math.floor(mfHash(s * 2.3 + tries * 7.9 + 0.5) * gw);
+      sy = Math.floor(mfHash(s * 3.1 + tries * 4.3 + 9.1) * gh);
+      if (ink[sy * gw + sx] > 0.1 + 0.5 * mfHash(s * 5.7 + tries * 1.3)) break;
+    }
+    let px = sx + 0.5;
+    let py = sy + 0.5;
+    let pvx = 0;
+    let pvy = 0;
+    const first = w;
+    for (let st = 0; st < PN_STEPS; st++) {
+      const ix = Math.floor(px);
+      const iy = Math.floor(py);
+      if (ix < 0 || iy < 0 || ix >= gw || iy >= gh) break;
+      const c = iy * gw + ix;
+      let vx = F.fx[c];
+      let vy = F.fy[c];
+      // The field has no sign, so keep the direction continuous along the line.
+      if (vx * pvx + vy * pvy < 0) {
+        vx = -vx;
+        vy = -vy;
+      }
+      cells[w++] = c;
+      px += vx * PN_STEP;
+      py += vy * PN_STEP;
+      pvx = vx;
+      pvy = vy;
+    }
+    state.pnStart[s] = first;
+    state.pnLen[s] = w - first;
+  }
+}
+
+// Adds the beads to the darkness the strokes read. Each snake's head runs along its streamline, and the bead is the
+// stretch behind the head. Snakes are chosen by the Snakes share; the bead's depth follows the motion amount.
+function pnBead(rc, state, tone, gw) {
+  const motion = rc.motion;
+  const cells = state.pnCells;
+  for (let s = 0; s < PN_STREAMS; s++) {
+    const f = mfSnake(motion, s);
+    if (f < 0) continue;
+    const n = state.pnLen[s];
+    if (n < 4) continue;
+    const o = state.pnStart[s];
+    const hi = Math.floor(f * (n + PN_TAIL));
+    const a = Math.max(0, hi - PN_TAIL);
+    const b = Math.min(n - 1, hi);
+    if (b < a) continue;
+    const head = cells[o + b];
+    // On video the bead swells where the picture moves at its head.
+    const sw = mfSwell(rc, (head % gw) * CELL_PX + 1, Math.floor(head / gw) * CELL_PX + 1);
+    for (let i = a; i <= b; i++) {
+      const c = cells[o + i];
+      const u = 1 - (hi - i) / PN_TAIL;
+      const v = tone[c] + 0.6 * motion.amount * sw * u * u;
+      tone[c] = v > 1 ? 1 : v;
+    }
+  }
+}
+
 export function renderPencil(rc) {
   const { ctx, W, H, grid, p, pal, state } = rc;
   const gw = grid.gw;
@@ -28,6 +108,7 @@ export function renderPencil(rc) {
     state.flow = createFlowBuffers(cn);
     state.noise = new Float32Array(cn);
     state.tex = new Float32Array(cn);
+    state.tone = new Float32Array(cn);
     state.alpha = new Float32Array(cn);
     state.hist = new Uint32Array(256);
     state.cdf = new Float32Array(256);
@@ -47,6 +128,15 @@ export function renderPencil(rc) {
   // 1) Contour-aligned flow field from the structure tensor.
   buildFlow(grid, state.flow);
   const F = state.flow;
+
+  // Snake: the beads are added to a copy of the darkness, so the strokes are still drawn by the texture below.
+  let ink = grid.ink;
+  if (mfActive(rc, 'snake')) {
+    pnTrace(state, F, gw, gh, grid.ink);
+    state.tone.set(grid.ink);
+    pnBead(rc, state, state.tone, gw);
+    ink = state.tone;
+  }
 
   // 2) Line integral convolution: average the noise along the flow, both ways.
   const L = Math.round(lerp(2, 5, clamp(p.detail, 0, 100) / 100));
@@ -94,7 +184,6 @@ export function renderPencil(rc) {
   // Density sets the pressure (coverage multiplier).
   const pressure = 0.55 + 0.9 * clamp(p.density, 0, 100) / 100;
   const alpha = state.alpha;
-  const ink = grid.ink;
   for (let gy = 0; gy < gh; gy++) {
     for (let gx = 0; gx < gw; gx++) {
       const i = gy * gw + gx;

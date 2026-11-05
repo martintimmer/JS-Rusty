@@ -17,9 +17,10 @@ export const RANGE_CONTROLS = [
   { id: 'r-saturation', key: 'saturation', out: 'saturation-val', fmt: (v) => Math.round(v) + '%' },
   { id: 'r-edge', key: 'edge', out: 'edge-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-particles', key: 'particles', out: 'particles-val', fmt: (v) => String(Math.round(v)) },
-  { id: 'r-anim-count', key: 'animCount', out: 'anim-count-val', fmt: (v) => String(Math.round(v)) },
+  { id: 'r-anim-count', key: 'animCount', out: 'anim-count-val', fmt: (v) => Math.round(v) + '%' },
   { id: 'r-speed', key: 'speed', out: 'speed-val', fmt: (v) => v.toFixed(2) + '×' },
   { id: 'r-motion', key: 'motion', out: 'motion-val', fmt: (v) => v.toFixed(2) },
+  { id: 'r-trail', key: 'trail', out: 'trail-val', fmt: (v) => Math.round(v) + '%' },
   { id: 'r-direction', key: 'direction', out: 'direction-val', fmt: (v) => Math.round(v) + '°' },
   { id: 'r-velocity', key: 'velocity', out: 'velocity-val', fmt: (v) => v.toFixed(2) },
   { id: 'r-thickness', key: 'thickness', out: 'thick-val', fmt: (v) => v.toFixed(1) + ' px' },
@@ -228,7 +229,7 @@ export function setAlgorithmEnabled(enabled, note) {
   el.textContent = note || '';
 }
 
-// Animation applies to still images only, so its choices are disabled for video.
+// Enables or disables the Animation choices.
 export function setAnimationEnabled(enabled) {
   document.querySelectorAll('#animation-selector .seg').forEach((btn) => {
     btn.disabled = !enabled;

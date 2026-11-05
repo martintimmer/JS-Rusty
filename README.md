@@ -189,54 +189,83 @@ On a 10 s clip at 10 fps this takes about half a second in the worker.
 
 A structure tensor (`Jxx`, `Jyy`, `Jxy` from the gradients of the analysis grid, smoothed) gives a direction
 field. The dominant orientation is perpendicular to the gradient, so it runs along contours. Where the
-structure is not coherent, the direction falls back to horizontal. Pencil, linocut and the snake motion use it.
+structure is not coherent, the direction falls back to horizontal. Pencil and linocut use it.
 
 ---
 
 ## 4. The animation model
 
-**The Animation panel is hidden in the interface for now.** Its code is kept. To show it again, set `ANIMATIONS_ENABLED` to `true` in `src/app.js`. Animation applies to still images only; a video plays as recorded.
+The animation types change the algorithm's inputs over time, and the algorithm draws each frame again. Nothing is
+laid over the finished picture. The types live in `src/rendering/motion-field.js`, and the engines that draw their own
+marks read them through `rc.motion`.
 
-Animation is an optional layer over the selected algorithm. The algorithm draws each frame exactly as it does
-without animation. The motion layer (`src/rendering/animation-layer.js`) then moves the result, so the chosen
-look is kept.
+The motion works in three layers, cheapest first:
 
-| Option | Stills | Video | What it does |
-|---|---|---|---|
-| **Off** | yes | not offered | The algorithm draws a still image. |
-| **Snake** | yes | yes | Snakes crawl along the lines of the subject, following the flow field, over the algorithm's output. |
-| **Pulse** | yes | yes | The picture breathes in and out, and rings of displacement travel outward from the centre. |
-| **Hover** | yes | yes | Regions float slightly, each one out of step with its neighbours. |
-| **Ripple** | yes | yes | A wave travels across the picture in the chosen direction. |
+- **L0, the grid.** Every engine reads the same analysis grid (the tone). Pulse, Hover and Ripple displace that grid
+  smoothly before the engine runs, so the engine redraws its own marks from the moved tone. Lines stay crisp, and no
+  pixel is resampled. Snake, on an engine without strokes of its own, is a darkness bead that runs along each row of
+  the grid.
+- **L1, the engine's own marks.** Some engines move the marks they draw (`MF_NATIVE` in `motion-field.js`):
+
+  | Engine | Pulse | Hover | Snake | Ripple |
+  |---|---|---|---|---|
+  | Engraving (horizontal lines) | — | each line bobs on its own phase | a bead of extra ink runs along each line | — |
+  | Contour | levels sweep up and down the tone range | — | a bead runs along each chain | — |
+  | Stippling | — | each dot floats on a small circle | — | — |
+  | Halftone | dot radius swells in rings from the darkest mass | each dot floats | — | — |
+  | Wave lines | — | — | a bead runs along each ridge | a wave travels along the ridges |
+  | Pixel sort | the sort band slides up and down | — | — | — |
+  | Dither | the tone is offset in rings from the darkest mass, so the threshold waves | — | — | — |
+  | Pencil | — | — | a bead of graphite runs along each streamline of the flow | — |
+
+  Engraving's diagonal and crosshatched patterns, and every other engine, take the type through the grid (L0).
+- **L2, the still decides.** The outline of the darkest subject (ink above one half) gives a distance field. Ripple's
+  wave fronts start there and travel outward, and they drift in the Wave direction. The ink centroid, the darkest
+  mass, is the centre of Pulse's rings, and dark areas move more than paper.
 
 Rules:
 
+- **Rest.** Off gives the still. With Depth (Velocity) at 0, the picture is the still too, for stills and for video (on
+  video, Motion influence is scaled by Depth as well). Speed 0 freezes
+  the motion where it is, so the picture stays in that pose rather than returning to the still.
 - **The algorithm stays available** with any motion type. Changing the algorithm keeps the motion on.
-- **Animation is for still images only.** For video the Animation choices are disabled, and the video plays as
-  recorded.
-- **Stills start moving when a motion type is chosen**, and stop when Off is chosen. Play and Pause hold the
-  clock, and Restart resets it to zero.
-- **Clock.** The artwork has its own clock, for video and stills alike. A video's clock plays through the clip and
-  loops at its length. It starts from the beginning once processing finishes. A still's clock counts up while an
-  animation runs. Speed scales the animation. The source `<video>` is not the clock. It is shown only in the Original
-  and Split views, where it is kept in step with the artwork clock.
-- **Motion influence.** The block motion vectors drive the Stippling and Contour algorithms on video. They do not
-  drive the animation types, which are not available for video.
+- **Time.** Each term runs a whole number of cycles per loop. A still's loop is 6 s ÷ Speed (2 to 12 s, so 6 s at
+  Speed 1, see `stillLoopSeconds` in `core.js`), and video loops at its clip length. A GIF of a still covers exactly one
+  loop at the live rate, so its last frame leads into its first and moves as fast as the picture on screen. A recording
+  of a still is one loop too. Live, the clock runs continuously at Speed, and changing Speed does not jump the picture.
+- **Stills start moving when a motion type is chosen**, and stop when Off is chosen. Play and Pause hold the clock,
+  and Restart resets it to zero.
+- **Video** can be animated as well. The motion runs over the clip's own clock, and it loops with the clip. Motion
+  influence adds the block motion vectors to the displacement of Pulse, Hover and Ripple. Stippling and Contour also use
+  the vectors directly, as before. The source `<video>` is not the clock. It is shown only in the Original and Split
+  views, where it is kept in step with the artwork clock.
+- **Trail** (stills, with Pulse, Hover or Ripple). The picture a moment ago (0.4 s of motion time earlier) is blended
+  into the tone, darker wins, and the Trail percentage fades it. The engine draws that tone, so the marks of the moment
+  before stay behind as the algorithm's own strokes. Loops still close, because the earlier moment is part of the same
+  periodic motion.
+- **Packed Dither exports** are a fixed picture, so they carry no motion. The other algorithms export their motion in
+  the standalone file.
 
 How each type works:
 
-- **Snake** (`snake` in `animation-layer.js`). Streamlines are traced from seeds on the subject (seeds prefer
-  dark cells), along the structure-tensor flow field (section 3.5). Each snake is a tail of points with a head
-  that runs along its streamline at its own pace, then leaves the end and reappears at the start.
-- **Pulse.** Each displacement node gets a ring wave that travels outward (170 px wavelength at 1080p, fading
-  with distance), plus a breathing zoom of about ±1.2% around the centre.
-- **Hover.** Each region is moved by a sinusoid whose phase comes from smooth value noise on a 96 px lattice,
-  so neighbours bob out of step. The amplitude is 1.6 px at 1080p, with a 1.2 px floor so small exports still
+- **Snake.** Each stroke carries a snake on a share of the strokes (the Snakes control, in percent). The snake is a
+  bead that runs along the stroke from a tail up to its head, and it leaves the end and reappears at the start. Each
+  snake runs one or two laps per loop. On Pencil, the streamlines of the flow are traced from dark seeds, and the bead
+  is extra graphite on one of them. On video, Motion influence makes a bead thicker where the picture moves at its head.
+- **Pulse.** On contours, each level moves up and down the tone range, staggered across the levels, so the lines
+  breathe. On halftone, dots swell in rings from the darkest mass. On Dither, the tone is offset in the same rings, which
+  moves the threshold. Elsewhere, the grid is displaced in rings from
+  that centre (170 px wavelength at 1080p).
+- **Hover.** Each line, dot or region floats on its own phase, from smooth value noise on a 96 px lattice, so
+  neighbours move out of step. On the grid the float is 1.6 px at 1080p, with a 1.2 px floor so small exports still
   move.
-- **Ripple.** A plane wave (240 px wavelength at 1080p) travels in the Wave direction. Pixels move along the
-  direction of the wave.
-- **Displacement, in general.** The frame is read back, the displacement is evaluated on an 8 px node grid and
-  interpolated bilinearly, and each output pixel takes the colour of its nearest displaced source pixel.
+- **Ripple.** Wave fronts (240 px wavelength at 1080p) leave the subject's outline and travel outward. They drift in the
+  Wave direction. Ridges in Wave lines travel as well.
+- **Displacement, in general.** The grid is displaced on an 8 px node field, interpolated bilinearly, and sampled
+  bilinearly at each cell. A displaced mark is smooth, not stepped.
+
+The analysis grid of a still is built once for each setting that changes it. The motion moves a copy of it, so a
+still with motion does not rebuild the grid on every frame.
 
 The point set and triangulation of the low poly engine are cached while their settings hold still, so on
 video the mesh stays fixed while the shading follows the picture.
@@ -263,10 +292,10 @@ engines draw with `Path2D`.
 | Linocut | `linocut.js` | Two-tone: solid where dark, flow-aligned gouge streaks in the middle tones, outlines on edges. |
 | ASCII | `ascii.js` | A glyph per cell, chosen by darkness from a light-to-dark ramp. |
 | Pixel sort | `sort.js` | Runs of pixels within a luminance band are sorted along rows or columns. |
-| Motion layer | `rendering/animation-layer.js` | Snake, pulse, hover and ripple, laid over any engine's output (section 4). |
+| Motion | `rendering/motion-field.js` | Snake, pulse, hover and ripple: they move the analysis grid and the marks of the engines that draw them (section 4). |
 
-`src/rendering/artwork.js` draws the selected algorithm. If a motion type is on, the motion layer is applied to
-that output afterwards.
+`src/rendering/artwork.js` builds the analysis grid, moves a copy of it when a motion type is on, and draws the selected
+algorithm on that grid.
 
 ### 5.1 Dither
 
@@ -362,7 +391,7 @@ src/
     dither/                    dither methods, tone, adaptive threshold, edges, temporal state, colour sets, palettes
     colour.js, palettes.js     sRGB, linear light and OKLab; the palette library and its mix tables
     artwork.js                 owns the canvas and the analysis grid; dispatches the engines
-    animation-layer.js         motion types (snake, pulse, hover, ripple) laid over the algorithm output
+    motion-field.js            motion types: the grid displacement, the time model and the engines' own marks
     animation-controller.js    requestAnimationFrame loop; playback clock; render-on-change
   engines/                     one file per renderer (section 5)
   export/
@@ -405,8 +434,7 @@ each cell is packed at the smallest bit depth that holds the palette: 1 bit for 
 3 bits for five to eight, and 4 bits for nine to sixteen. The bit stream is compressed with zlib
 (`CompressionStream('deflate')`) and base64-encoded. The page paints the indices with the palette table, so it shows the
 picture the app showed, without dithering again. Dither exports are at the processed size, so the width setting does
-not apply to them. A still with an animation type is exported as its algorithm's picture, without the motion layer,
-because the motion layer is drawn over the canvas rather than into the indices.
+not apply to them. Packed Dither exports are a fixed picture, so they carry no motion (section 4).
 
 The HTML export wraps the same script in a page that opens from `file://`.
 
@@ -423,7 +451,7 @@ Every export is made from the export window, opened by the Export button in the 
 | MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |
-| GIF | One frame for a still, or an animation when animation is on | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
+| GIF | One frame for a still, or an animation when animation is on. A still's animation is one loop of 6 s ÷ Speed (2 to 12 s), which closes | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
 | WebM | A recording of the live canvas | MediaRecorder. MP4 is not offered: no reliable in-browser encoder without extra dependencies. |
 
 The GIF encoder was checked against two independent decoders, on random data (which forces dictionary
@@ -455,17 +483,17 @@ in `src/algorithm-controls.js` and was derived from the engine code.
 
 | Motion type | Algorithm controls | Motion controls | Other |
 |---|---|---|---|
-| Snake | all of the algorithm's | — | Snake speed, Snakes (count), Snake width (stills only) |
-| Pulse | all of the algorithm's | — | Pulse rate, Pulse depth (stills only) |
-| Hover | all of the algorithm's | — | Hover speed, Hover amount (stills only) |
-| Ripple | all of the algorithm's | — | Wave speed, Wave height, Wave direction (stills only) |
+| Snake | all of the algorithm's | Motion influence (video) | Snake speed, Snakes (share of the strokes, %), Snake width |
+| Pulse | all of the algorithm's | Motion influence (video), Trail (stills) | Pulse rate, Pulse depth |
+| Hover | all of the algorithm's | Motion influence (video), Trail (stills) | Hover speed, Hover amount |
+| Ripple | all of the algorithm's | Motion influence (video), Trail (stills) | Wave speed, Wave height, Wave direction |
 
 Where a motion type and the algorithm use the same control, the motion's label is shown while that motion is on.
 
 Global controls for every algorithm and animation: contrast, brightness, palette and background.
 
-Media rules: the motion influence slider (Stippling and Contour) appears only for video, because it needs motion data.
-Animation types are offered for stills only. Video-only items
+Media rules: the motion influence slider (Stippling, Contour, and the Pulse, Hover, Ripple and Snake types) appears only for
+video, because it needs motion data. Animation types are offered for stills and video. Video-only items
 (sampling rate, timeline, WebM) appear only for video. Still-image exports (PNG and JPG) are offered in the export window for stills only, and appear only
 for stills.
 
@@ -498,8 +526,8 @@ Measured in Node with `@napi-rs/canvas` on a 1920×1080 test sequence. These are
 | Engine | Frame time (approx.) | Notes |
 |---|---|---|
 | Horizontal engraving | ~32 ms | Pixel cost |
-| Motion layer (pulse, hover, ripple) | ~10–30 ms on top of the algorithm | Read-back, displacement and write-back of the frame |
-| Snake | ~5–10 ms on top of the algorithm | Streamlines are retraced when the grid changes (video) |
+| Motion (pulse, hover, ripple) | Not measured yet | One displacement pass over the analysis grid, with no read-back of the frame |
+| Snake | Not measured yet | Beads are drawn inside the engine's own loop, and the grid snake is one pass over the grid |
 | Halftone | ~50–150 ms | Dot path |
 | Pencil sketch | ~60–100 ms | Line integral convolution |
 | Low poly | ~15–30 ms | Mesh cached; about 1 500 triangles by default |

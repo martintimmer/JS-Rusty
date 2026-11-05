@@ -1,6 +1,7 @@
 import {
   clamp, lerp, sampleMotion, CANVAS_SCALE, CELL_PX,
 } from '../rendering/core.js';
+import { mfActive, mfSnake, mfSwell, mfTriangle, MOTION_BASE } from '../rendering/motion-field.js';
 
 // Contour / line-art engine.
 // Marching squares extracts iso-lines of the (denoised) ink field. Crossings on shared
@@ -50,6 +51,16 @@ export function renderContour(rc) {
   const ids = new Int32Array(4);
   let chains = 0;
 
+  // Motion, when on. Pulse sweeps the levels up and down the tone range, staggered across the levels, so the contours
+  // breathe. Snake puts a bead on a share of the chains: a thicker run of the same line that travels along it.
+  const sweep = mfActive(rc, 'pulse');
+  const sweepBlend = sweep ? clamp(rc.motion.amount, 0, 1) : 0;
+  const sweepPhase = sweep ? rc.motion.freq(MOTION_BASE.pulse) * rc.motion.time : 0;
+  const beads = mfActive(rc, 'snake');
+  // Beads are drawn in three widths, by how far the picture moves at each bead's head (see contourBead).
+  const beadPaths = beads ? [new Path2D(), new Path2D(), new Path2D()] : null;
+  const chainBuf = [];
+
   ctx.fillStyle = pal.bgCss;
   ctx.fillRect(0, 0, W, H);
 
@@ -64,10 +75,17 @@ export function renderContour(rc) {
     }
     if (method === 0) path.moveTo(x, y);
     else path.lineTo(x, y);
+    if (beads) {
+      if (method === 0) chainBuf.length = 0;
+      chainBuf.push(x, y);
+    }
   };
 
   for (let li = 0; li < levelCount; li++) {
-    const level = levelCount === 1 ? 0.5 : lerp(0.08, 0.92, li / (levelCount - 1));
+    const standard = levelCount === 1 ? 0.5 : lerp(0.08, 0.92, li / (levelCount - 1));
+    const level = sweepBlend > 0
+      ? lerp(standard, lerp(0.08, 0.92, mfTriangle(sweepPhase + li / levelCount)), sweepBlend)
+      : standard;
     // Only the edges touched on this level are cleared and walked (cheap at coarse stride).
     let nt = 0;
 
@@ -110,11 +128,13 @@ export function renderContour(rc) {
       const id = touched[t];
       if (visited[id] || linkB[id] !== -1) continue;
       chains += walkChain(id, linkA, linkB, visited, emitPoint);
+      if (beads) contourBead(chainBuf, beadPaths, rc, chains);
     }
     for (let t = 0; t < nt; t++) {
       const id = touched[t];
       if (visited[id]) continue;
       chains += walkChain(id, linkA, linkB, visited, emitPoint);
+      if (beads) contourBead(chainBuf, beadPaths, rc, chains);
     }
 
     // Reset only what this level touched.
@@ -131,7 +151,34 @@ export function renderContour(rc) {
   ctx.lineJoin = 'round';
   ctx.lineWidth = lineWidth;
   ctx.stroke(path);
+  if (beads) {
+    const width = lineWidth * (1 + 1.2 * clamp(p.thickness, 0.2, 2));
+    const scales = [1, 1.35, 1.7];
+    for (let s = 0; s < beadPaths.length; s++) {
+      ctx.lineWidth = width * scales[s];
+      ctx.stroke(beadPaths[s]);
+    }
+  }
   rc.elements = chains;
+}
+
+// A snake on one chain: a run of the chain, from a tail behind its head up to the head, which moves along the chain
+// and leaves at its end. The chain's points are in buf (x, y pairs). id is stable for the chain, so the snake is too.
+// The bead goes into the path of its width: thicker where the picture moves at its head (video only).
+function contourBead(buf, paths, rc, id) {
+  const n = buf.length >> 1;
+  if (n < 6) return;
+  const f = mfSnake(rc.motion, id);
+  if (f < 0) return;
+  const tail = Math.max(3, Math.min(24, Math.round(n * 0.4)));
+  const hi = Math.floor(f * (n + tail));
+  const a = Math.max(0, hi - tail);
+  const b = Math.min(n - 1, hi);
+  if (b <= a) return;
+  const sw = mfSwell(rc, buf[2 * b], buf[2 * b + 1]);
+  const path = paths[sw < 1.3 ? 0 : (sw < 1.9 ? 1 : 2)];
+  path.moveTo(buf[2 * a], buf[2 * a + 1]);
+  for (let i = a + 1; i <= b; i++) path.lineTo(buf[2 * i], buf[2 * i + 1]);
 }
 
 // Records one link from edge `from` to edge `to`. Returns the updated touched count.

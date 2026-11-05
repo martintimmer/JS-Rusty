@@ -1,4 +1,5 @@
 import { clamp, lerp, sampleInk } from '../rendering/core.js';
+import { mfActive, mfHash, MOTION_BASE } from '../rendering/motion-field.js';
 
 // Halftone screen on a hexagonal lattice.
 // A square lattice of dots reads as a mesh of squares. A hexagonal lattice (rows offset by
@@ -28,6 +29,15 @@ export function renderHalftone(rc) {
   const reach = Math.ceil(Math.hypot(W, H) / Math.min(cell, rowH)) + 2;
   const path = new Path2D();
   let dots = 0;
+  // Motion, when on. Pulse swells the dots in rings that leave the darkest mass; Hover floats each dot on its own phase.
+  const pulse = mfActive(rc, 'pulse');
+  const hover = mfActive(rc, 'hover');
+  const amount = rc.motion ? rc.motion.amount : 0;
+  const time = rc.motion ? rc.motion.time : 0;
+  const pulseFreq = pulse ? rc.motion.freq(MOTION_BASE.pulse) : 0;
+  const hoverFreq = hover ? rc.motion.freq(MOTION_BASE.hover) : 0;
+  const centre = pulse ? rc.motion.centre : null;
+  const ringLength = 170 * scale;
 
   ctx.fillStyle = pal.bgCss;
   ctx.fillRect(0, 0, W, H);
@@ -47,10 +57,22 @@ export function renderHalftone(rc) {
 
       const darkness = sampleInk(grid, x, y);
       // Area tracks tone: radius grows with the square root of darkness.
-      const radius = maxRadius * Math.sqrt(darkness) * (0.94 + 0.12 * htHash(id + 7.3));
+      let radius = maxRadius * Math.sqrt(darkness) * (0.94 + 0.12 * htHash(id + 7.3));
+      if (pulse) {
+        const d = Math.hypot(x - centre.x, y - centre.y);
+        radius *= 1 + 0.35 * amount * Math.sin(2 * Math.PI * (pulseFreq * time - d / ringLength));
+      }
       if (radius < 0.35) continue;
-      path.moveTo(x + radius, y);
-      path.arc(x, y, radius, 0, Math.PI * 2);
+      let dx = x;
+      let dy = y;
+      if (hover) {
+        const a = 2 * Math.PI * (hoverFreq * time + mfHash(id + 3.1));
+        const amp = 0.14 * cell * amount;
+        dx += amp * Math.cos(a);
+        dy += amp * Math.sin(a);
+      }
+      path.moveTo(dx + radius, dy);
+      path.arc(dx, dy, radius, 0, Math.PI * 2);
       dots++;
     }
   }

@@ -570,7 +570,7 @@ function adaptPreview(work) {
   live.art = null; // rebuilt at the new size on the next frame
 }
 
-// The settings the preview uses: the palette and algorithm in use, with no motion layer. The preview draws the finest
+// The settings the preview uses: the palette and algorithm in use, with no motion. The preview draws the finest
 // dots (a grid of one canvas pixel); the editor keeps its own grid size.
 function liveParams() {
   return Object.assign({}, live.options.getParams(), { animation: 'off', dtGrid: 1 });

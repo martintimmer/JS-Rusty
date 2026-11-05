@@ -1,6 +1,6 @@
 // Application entry point: wires the UI to the media pipeline, renderer and exporters.
 
-import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE } from './rendering/core.js';
+import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, stillLoopSeconds } from './rendering/core.js';
 import { autoLevels } from './media/tone.js';
 import { createArtwork } from './rendering/artwork.js';
 import { AnimationController } from './rendering/animation-controller.js';
@@ -36,9 +36,8 @@ const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 const FPS_MIN = 1;
 const FPS_MAX = 120;
 const DEFAULT_SOURCE_FPS = 30;
-// The Animation choices (snake, pulse, hover, ripple) are hidden in the interface for now. Set this to true
-// to show them again. Animation applies to still images only.
-const ANIMATIONS_ENABLED = false;
+// The Animation choices (snake, pulse, hover, ripple) are shown. Set this to false to hide them again.
+const ANIMATIONS_ENABLED = true;
 const $ = UI.DOM.get;
 
 const state = {
@@ -70,6 +69,7 @@ function init() {
   initLive({ getParams: () => state.params, setParam: liveSetParam, onOpenClip: (file) => handleFile(file) });
   bindDock();
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
+  $('animation-panel').hidden = !ANIMATIONS_ENABLED;
   // The default output is 1080p on every device. Long clips are made smaller automatically when their frames would
   // not fit the memory budget, so phones do not need a smaller default. Phones and tablets get a tap to choose a file.
   $('p-res').value = '1080';
@@ -205,8 +205,6 @@ async function handleFile(file) {
         url: loaded.url, element: video,
       };
     }
-    // Animation applies to still images only. A video plays as recorded, with no animation layer.
-    if (state.media.kind === 'video') state.params.animation = 'off';
     showSourceInfo();
     UI.layoutPreview(state.media.width, state.media.height, state.zoom);
     // Processing starts as soon as the media has loaded; there is no separate button.
@@ -498,9 +496,9 @@ function onParamChange(key, value) {
   }
 }
 
-// Chooses the animation type. Animation applies to still images only, so this does nothing for video.
+// Chooses the animation type. A video keeps playing, and the motion runs over its clock.
 function setAnimation(type) {
-  if (!ANIMATIONS_ENABLED || (state.media && state.media.kind === 'video')) return;
+  if (!ANIMATIONS_ENABLED) return;
   state.params.animation = type;
   if (state.artwork) {
     state.artwork.setParams({ animation: type });
@@ -865,7 +863,8 @@ function exportSource() {
     data: state.data,
     isVideo: isVideo,
     animated: isVideo || isAnimated(),
-    recordSeconds: isVideo ? state.data.duration : 8,
+    loopSeconds: stillLoopSeconds(state.artwork.params.speed),
+    recordSeconds: isVideo ? state.data.duration : stillLoopSeconds(state.artwork.params.speed),
     // Dither artwork is exported as packed palette indices (see javascript-exporter.js).
     packed: state.artwork.params.algorithm === 'dither',
   };
@@ -933,6 +932,7 @@ async function exportGifFile(s) {
       fps: s.gifFps,
       blur: s.blur,
       animated: animated,
+      loopSeconds: stillLoopSeconds(state.artwork.params.speed),
       onProgress: (i, n) => setStatus('Rendering GIF frame ' + i + ' of ' + n + '…', false),
     });
     downloadBlob('js-rusty-animation.gif', result.blob);
@@ -946,6 +946,21 @@ async function exportGifFile(s) {
   }
 }
 
+// A recording starts at the first frame of the loop and returns its length in seconds. A still records exactly one
+// loop (its length follows Speed, see stillLoopSeconds), so the loop wraps while it records and the recording closes.
+// A video records its clip, which the clock already loops.
+function startRecordingLoop(isVideo) {
+  const seconds = isVideo ? state.data.duration : stillLoopSeconds(state.artwork.params.speed);
+  if (!isVideo) state.controller.setLoopSeconds(seconds);
+  state.controller.restartClock();
+  state.controller.markDirty(true);
+  return seconds;
+}
+
+function endRecordingLoop(isVideo) {
+  if (!isVideo) state.controller.setLoopSeconds(0);
+}
+
 async function exportWebm() {
   if (!state.data || state.recording) return;
   const isVideo = state.media.kind === 'video';
@@ -956,10 +971,9 @@ async function exportWebm() {
   state.recording = true;
   updateEnabledState();
   const wasPlaying = state.controller.playing;
-  const seconds = isVideo ? state.data.duration : 8;
+  let seconds = 0;
   try {
-    if (isVideo) state.controller.restartClock();
-    state.controller.markDirty(true);
+    seconds = startRecordingLoop(isVideo);
     state.controller.setPlaying(true);
     updatePlayButton();
     const blob = await recordCanvasWebm($('render-canvas'), seconds, (f) => {
@@ -970,6 +984,7 @@ async function exportWebm() {
   } catch (err) {
     setStatus('Recording failed: ' + err.message, true);
   } finally {
+    endRecordingLoop(isVideo);
     state.controller.setPlaying(wasPlaying);
     state.recording = false;
     updateEnabledState();
@@ -1002,10 +1017,9 @@ async function exportMp4(s) {
   state.recording = true;
   updateEnabledState();
   const wasPlaying = state.controller.playing;
-  const seconds = isVideo ? state.data.duration : 8;
+  let seconds = 0;
   try {
-    if (isVideo) state.controller.restartClock();
-    state.controller.markDirty(true);
+    seconds = startRecordingLoop(isVideo);
     state.controller.setPlaying(true);
     updatePlayButton();
     const blob = await recordCanvasVideo(canvas, seconds, mime, bits, (f) => {
@@ -1016,6 +1030,7 @@ async function exportMp4(s) {
   } catch (err) {
     setStatus('Recording failed: ' + err.message, true);
   } finally {
+    endRecordingLoop(isVideo);
     state.controller.setPlaying(wasPlaying);
     state.recording = false;
     updateEnabledState();
@@ -1044,15 +1059,15 @@ function setStatus(message, isError) {
   setExportMessage(message, isError);
 }
 
+// What each animation type does to the algorithm. The algorithm draws every frame, so its own marks move.
 const ANIMATION_NOTES = {
-  snake: 'Snakes crawl along the lines of the subject, over the algorithm.',
-  pulse: 'The picture breathes and rings travel out from the centre, over the algorithm.',
-  hover: 'Regions float slightly out of step with each other, over the algorithm.',
-  ripple: 'A wave travels across the picture, over the algorithm.',
+  snake: 'Beads of ink run along the strokes the algorithm draws. Engines without strokes get a darkness bead on each row.',
+  pulse: 'The contours breathe, and rings of tone travel out from the darkest mass.',
+  hover: 'Each line, dot or region floats on its own phase, so the picture drifts without tearing.',
+  ripple: 'Wave fronts leave the subject’s outline and travel outward through the picture.',
 };
 
-function animationNote(kind, anim) {
-  if (kind === 'video') return 'Animation applies to still images only. The video plays as recorded.';
+function animationNote(anim) {
   if (anim === 'off') return 'Off: the algorithm draws a still image.';
   return ANIMATION_NOTES[anim] || '';
 }
@@ -1065,11 +1080,11 @@ function refreshControls() {
   UI.applyControlVisibility(algo, kind, state.params.pattern, anim,
     { dtMethod: state.params.dtMethod, dtPalette: state.params.dtPalette });
   UI.applyMediaVisibility(kind, isAnimated());
-  // The algorithm is always available; a motion type is laid over its output.
+  // The algorithm is always available; a motion type changes its inputs and it draws the frame again.
   UI.setAlgorithmEnabled(true, '');
-  UI.setAnimationEnabled(kind !== 'video');
+  UI.setAnimationEnabled(true);
   UI.setAnimationChoice(anim);
-  UI.setAnimationNote(animationNote(kind, anim));
+  UI.setAnimationNote(animationNote(anim));
 }
 
 function updateEnabledState() {

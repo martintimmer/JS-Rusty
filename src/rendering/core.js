@@ -15,9 +15,10 @@ export const DEFAULT_PARAMS = {
   edge: 0.5,
   pattern: 'horizontal',
   particles: 40000,
-  animCount: 400,
+  animCount: 100,            // Snakes: share of the strokes that carry a snake, in percent
   speed: 1,
   motion: 1,
+  trail: 0,                  // Trail: how much of the picture a moment ago stays in the tone, 0-100 (stills only)
   direction: 0,
   velocity: 1,
   thickness: 1,
@@ -62,7 +63,7 @@ export const DEFAULT_PARAMS = {
   dtTemporal: 0,             // temporal stability, 0-100 (0 = off)
 };
 
-const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
+const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'trail', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
 
 // Canvas pixels per source-frame pixel. 1 = the canvas matches the processing
 // resolution exactly (1920x1080 at 1080p).
@@ -73,6 +74,18 @@ export const GRID_CELL = 2;
 export const CELL_PX = GRID_CELL * CANVAS_SCALE;
 // Upper bound for stipple dots / particles (per frame).
 export const MAX_ELEMENTS = 80000;
+// Length of the loop of an animated still, in seconds, at Speed 1. Motion runs a whole number of cycles per loop, so a
+// GIF or a recording of one loop closes exactly (see motion-field.js).
+export const STILL_LOOP_SECONDS = 6;
+
+// Loop length of an animated still at a Speed. At Speed s the loop is STILL_LOOP_SECONDS / s, so every motion term
+// completes whole cycles at exactly its live rate, and the export matches the picture on screen. The length is kept
+// between 2 s and 12 s (a GIF holds at most 150 frames); outside that the cycles are rounded (see motionFrequency).
+export function stillLoopSeconds(speed) {
+  const s = Math.min(3, Math.max(0, Number(speed) || 0));
+  if (!(s > 0)) return STILL_LOOP_SECONDS;
+  return Math.min(12, Math.max(2, STILL_LOOP_SECONDS / s));
+}
 
 const PALETTES = {
   monochrome: { paper: [244, 241, 234], ink: [22, 21, 19], light: [236, 233, 226] },

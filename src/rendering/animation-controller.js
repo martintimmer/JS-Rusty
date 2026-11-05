@@ -11,6 +11,8 @@ export class AnimationController {
     this.isVideo = !!options.isVideo;
     // Length of the clip in seconds. The clock loops at this length for video (0 = no loop).
     this.duration = this.isVideo ? Math.max(0, options.duration || 0) : 0;
+    // The clock wraps at the loop length: the clip for video, and 0 (no wrap) for a still unless it is being recorded.
+    this.loopSeconds = this.duration;
     this.onTick = options.onTick || null;
     this.onStats = options.onStats || null;
     this.playing = false;
@@ -38,10 +40,18 @@ export class AnimationController {
     this.markDirty(true);
   }
 
+  // Sets the loop length in seconds (0 = none). A still records exactly one loop, so its clock wraps at that length
+  // while the recording runs. The motion starts again, so the loop begins at its first frame.
+  setLoopSeconds(seconds) {
+    this.loopSeconds = Math.max(0, seconds || 0);
+    if (this.loopSeconds > 0) this.clock = this.clock % this.loopSeconds;
+    this.markDirty(true);
+  }
+
   // Moves the clock to t seconds (the timeline). Video wraps at the clip length.
   seek(t) {
     let v = Math.max(0, t);
-    if (this.duration > 0) v = v % this.duration;
+    if (this.loopSeconds > 0) v = v % this.loopSeconds;
     this.clock = v;
     this.markDirty(false);
   }
@@ -68,7 +78,7 @@ export class AnimationController {
 
     if (this.playing) {
       this.clock += dt;
-      if (this.duration > 0) this.clock = this.clock % this.duration;
+      if (this.loopSeconds > 0) this.clock = this.clock % this.loopSeconds;
     }
 
     // Video is always continuous while playing. A still renders continuously only when an animation
@@ -77,7 +87,8 @@ export class AnimationController {
     const animated = params.animation !== 'off';
     const continuous = this.playing && (this.isVideo || animated);
     if (continuous || this.dirty) {
-      const result = this.artwork.render(this.clock, continuous ? dt : 0, { reset: this.forceReset });
+      const result = this.artwork.render(this.clock, continuous ? dt : 0,
+        { reset: this.forceReset, loop: this.loopSeconds });
       this.dirty = false;
       this.forceReset = false;
       this.trackStats(now, result);

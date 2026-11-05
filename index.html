@@ -124,14 +124,14 @@
           </div>
         </section>
 
-        <section class="panel" id="animation-panel" hidden>
+        <section class="panel" id="animation-panel">
           <h2>Animation</h2>
           <div class="segmented vertical" id="animation-selector" role="radiogroup">
             <button class="seg" data-anim="off" role="radio" aria-checked="false">Off <span>Still picture</span></button>
-            <button class="seg" data-anim="snake" role="radio" aria-checked="false">Snake <span>Lines follow</span></button>
-            <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing rings</span></button>
-            <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Fine float</span></button>
-            <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Travelling wave</span></button>
+            <button class="seg" data-anim="snake" role="radio" aria-checked="false">Snake <span>Beads run the lines</span></button>
+            <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing contours</span></button>
+            <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Marks float</span></button>
+            <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Wave from the outline</span></button>
           </div>
           <p class="muted small" id="anim-note"></p>
         </section>
@@ -474,12 +474,16 @@
           <input type="range" id="r-particles" min="500" max="80000" step="500" value="40000" />
         </label>
         <label class="field" data-ctrl="animCount">
-          <span><span class="lbl">Snakes</span> <em id="anim-count-val">400</em></span>
-          <input type="range" id="r-anim-count" min="20" max="2000" step="10" value="400" />
+          <span><span class="lbl">Snakes</span> <em id="anim-count-val">100%</em></span>
+          <input type="range" id="r-anim-count" min="5" max="100" step="1" value="100" />
         </label>
         <label class="field" data-ctrl="motion">
           <span><span class="lbl">Motion influence</span> <em id="motion-val">1.00</em></span>
           <input type="range" id="r-motion" min="0" max="3" step="0.05" value="1" />
+        </label>
+        <label class="field" data-ctrl="trail">
+          <span><span class="lbl">Trail</span> <em id="trail-val">0%</em></span>
+          <input type="range" id="r-trail" min="0" max="100" step="1" value="0" />
         </label>
         <label class="field" data-ctrl="speed">
           <span><span class="lbl">Speed</span> <em id="speed-val">1.00×</em></span>

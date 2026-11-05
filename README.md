@@ -364,8 +364,10 @@ table, built once per palette: for each of the 256 grey levels it stores the pai
 that best mixes to that grey. Each cell is then one lookup, and the output is always an exact palette colour. Palette
 order does not affect the result.
 
-The defaults (Atkinson, PICO-8 palette, every option at zero or off) reproduce the original renderer's output, and a
-check against it was run on several parameter sets.
+The original renderer's output is Atkinson with the PICO-8 palette and every option at zero or off. The defaults are now
+a template for the Dither look: Pulse animation on at 0.20× speed, Trail 44%, Depth 0.35, Halation 100% with spread 100%,
+Chromatic aberration 19%, serpentine scan on, grid 2 px, grain 8, gamma 1.05, diffusion 100%, edge preservation 0,
+adaptive threshold 50, detail 0, tone gain 65, edge halo 0, grayscale off, saturation 116%, brightness 0 and contrast 1.
 
 ### Optics: halation and chromatic aberration
 

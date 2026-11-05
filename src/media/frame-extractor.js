@@ -3,12 +3,25 @@
 // half size (for motion estimation, which runs faster on less data).
 
 import { rgbaToGray, rgbaToRgb } from './image-loader.js';
+import { drawView } from './view.js';
 
+// The seek timeouts. A colour reader needs the seek path to be quick, so a clip with a reader is given longer to seek
+// before the playback path is used.
+const SEEK_TIMEOUT_MS = 500;
+const SEEK_TIMEOUT_CONVERTED_MS = 5000;
 
-// Returns { frames, analysisFrames, analysisColour, count, fps, duration }. The rate is the one asked for: every
-// frame at that rate is sampled, so the artwork plays at the clip's own speed. The caller limits the frame count.
+// Playback with a colour reader: frames are captured in the playback callback and converted in order after it. Playback
+// pauses while this many captured frames wait to be converted, and resumes when the queue is nearly empty, so the
+// captured frames are never many at once.
+const PLAYBACK_QUEUE_MAX = 4;
+const PLAYBACK_QUEUE_RESUME = 1;
+
+// Returns { frames, analysisFrames, analysisColour, count, fps, duration, path, stalled }. The rate is the one asked for:
+// every frame at that rate is sampled, so the artwork plays at the clip's own speed. The caller limits the frame count.
 // options.source (optional) is a colour reader (source-frames.js): where it can give a frame, the frame is converted to
 // sRGB first, and the converted picture is drawn instead of the video element.
+// path: 'converted' when every frame went through the colour reader, 'browser' when none did, 'mixed' when some did, and
+// null when no colour reader was offered. stalled: the number of samples whose seek did not land in time.
 export async function extractFrames(video, options) {
   const { fps, width, height, duration, onProgress, view } = options;
   const source = options.source || null;
@@ -23,11 +36,20 @@ export async function extractFrames(video, options) {
   const frames = new Array(count);
   const analysisFrames = new Array(count);
   const analysisColour = new Array(count);
+  let convertedCount = 0;
+  let stalled = 0;
 
   for (let k = 0; k < count; k++) {
     const t = start + Math.min(k / rate, Math.max(0, duration - 0.02));
-    await seekTo(video, t);
+    // A seek can land on the wrong frame. The frame is checked against the time asked for, and the seek is repeated once
+    // if it is more than half a frame out. A seek that still has not landed is counted, so the caller can report it.
+    let landed = await seekTo(video, t);
+    if (!landed || Math.abs(video.currentTime - t) > 0.5 / rate) {
+      landed = await seekTo(video, t);
+      if (!landed || Math.abs(video.currentTime - t) > 0.5 / rate) stalled++;
+    }
     const converted = source ? await source.draw(video, picture) : false;
+    if (converted) convertedCount++;
     const from = converted ? picture : video;
     drawView(full.ctx, from, view, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
@@ -36,6 +58,11 @@ export async function extractFrames(video, options) {
     analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
     analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
     if (onProgress) onProgress((k + 1) / count);
+  }
+
+  let path = null;
+  if (source) {
+    path = convertedCount === count ? 'converted' : (convertedCount === 0 ? 'browser' : 'mixed');
   }
 
   return {
@@ -47,24 +74,25 @@ export async function extractFrames(video, options) {
     count: count,
     fps: rate,
     duration: count / rate,
+    path: path,
+    stalled: stalled,
   };
 }
 
 // Picks how the clip is read. A clip the browser can seek is sampled by seeking. A clip it cannot seek (a MediaRecorder
 // recording has no index, and a seek may never land) is sampled by playing it once. The frames are the same either way.
-import { drawView } from './view.js';
-
 // options: fps, width, height (the output size), duration (the trimmed length), start (the trim's first frame, in
-// seconds of the clip), view (the crop and turn, see view.js), onProgress.
+// seconds of the clip), view (the crop and turn, see view.js), onProgress, source (an optional colour reader).
 export async function extractVideoFrames(video, options) {
   const start = options.start || 0;
-  const seekable = await canSeek(video, start + options.duration / 2);
+  const timeout = options.source ? SEEK_TIMEOUT_CONVERTED_MS : SEEK_TIMEOUT_MS;
+  const seekable = await canSeek(video, start + options.duration / 2, timeout);
   if (seekable) return extractFrames(video, options);
   return extractFramesByPlayback(video, options);
 }
 
-// True when a seek to the middle of the clip lands within 0.1 s, within half a second.
-function canSeek(video, targetTime) {
+// True when a seek to the middle of the clip lands within 0.1 s, within the timeout.
+function canSeek(video, targetTime, timeoutMs) {
   if (!video.seekable || video.seekable.length === 0) return Promise.resolve(false);
   const target = Math.max(0, targetTime);
   return new Promise((resolve) => {
@@ -77,18 +105,18 @@ function canSeek(video, targetTime) {
       resolve(ok);
     };
     const onSeeked = () => finish(Math.abs(video.currentTime - target) < 0.1);
-    const timer = setTimeout(() => finish(false), 500);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     video.addEventListener('seeked', onSeeked);
     video.currentTime = target;
   });
 }
 
 // Samples a clip by playing it once, muted, at its own speed. Sample k takes the frame nearest to k / fps, as the
-// browser presents it. A clip that ends before the last sample repeats its last frame. The colour reader is not used
-// here: a frame is taken inside the playback callback, which cannot wait for a conversion, so the browser converts the
-// colour of a clip that is sampled this way.
+// browser presents it. A clip that ends before the last sample repeats its last frame. With a colour reader, each frame
+// is captured in the playback callback and converted in order after it; the playback pauses while the queue is long.
+// Without a reader, or where a frame cannot be captured, the browser's own drawing of the frame is used.
 function extractFramesByPlayback(video, options) {
-  const { fps, width, height, duration, onProgress, view } = options;
+  const { fps, width, height, duration, onProgress, view, source } = options;
   const start = options.start || 0;
   const count = Math.max(1, Math.floor(duration * fps + 1e-6));
   const rate = fps;
@@ -96,20 +124,57 @@ function extractFramesByPlayback(video, options) {
   const ah = height / 2;
   const full = makeContext(width, height);
   const small = makeContext(aw, ah);
+  const picture = source ? document.createElement('canvas') : null;
   const frames = new Array(count);
   const analysisFrames = new Array(count);
   const analysisColour = new Array(count);
-  let k = 0;
+  const queue = [];
+  let k = 0; // samples taken
+  let stored = 0; // samples written to the arrays
+  let convertedCount = 0;
+  let pausedForQueue = false;
+  let pumping = false;
+  let playbackOver = false;
+  let resolved = false;
 
-  const take = () => {
-    drawView(full.ctx, video, view, width, height);
-    frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
-    drawView(small.ctx, video, view, aw, ah);
+  // Draws the picture from `from` into the sample's arrays.
+  const store = (index, from) => {
+    drawView(full.ctx, from, view, width, height);
+    frames[index] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
+    drawView(small.ctx, from, view, aw, ah);
     const smallPx = small.ctx.getImageData(0, 0, aw, ah).data;
-    analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
-    analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
-    k++;
-    if (onProgress) onProgress(k / count);
+    analysisFrames[index] = rgbaToGray(smallPx, aw * ah);
+    analysisColour[index] = rgbaToRgb(smallPx, aw * ah);
+    stored++;
+    if (onProgress) onProgress(Math.min(1, stored / count));
+  };
+
+  const complete = (reject, resolve) => {
+    if (resolved) return;
+    resolved = true;
+    if (k === 0) {
+      reject(new Error('The clip could not be played to read its frames.'));
+      return;
+    }
+    for (let i = k; i < count; i++) {
+      frames[i] = frames[k - 1];
+      analysisFrames[i] = analysisFrames[k - 1];
+      analysisColour[i] = analysisColour[k - 1];
+    }
+    if (onProgress) onProgress(1);
+    const path = source ? (convertedCount === k ? 'converted' : (convertedCount === 0 ? 'browser' : 'mixed')) : null;
+    resolve({
+      frames: frames,
+      analysisFrames: analysisFrames,
+      analysisColour: analysisColour,
+      analysisWidth: aw,
+      analysisHeight: ah,
+      count: count,
+      fps: rate,
+      duration: count / rate,
+      path: path,
+      stalled: 0,
+    });
   };
 
   return new Promise((resolve, reject) => {
@@ -117,46 +182,73 @@ function extractFramesByPlayback(video, options) {
       reject(new Error('This browser cannot read this clip frame by frame.'));
       return;
     }
-    let finished = false;
+
+    // Converts the captured frames in order. Only one run is active at a time.
+    const pump = async () => {
+      if (pumping) return;
+      pumping = true;
+      try {
+        while (queue.length) {
+          const item = queue.shift();
+          const converted = await source.convert(video, item.frame, picture);
+          if (converted) {
+            convertedCount++;
+            store(item.index, picture);
+          } else {
+            store(item.index, video);
+          }
+          if (pausedForQueue && queue.length <= PLAYBACK_QUEUE_RESUME) {
+            pausedForQueue = false;
+            video.play().catch(() => finish());
+          }
+        }
+      } catch (err) {
+        finish();
+      }
+      pumping = false;
+      if (playbackOver) complete(reject, resolve);
+    };
+
+    // Takes sample k from the frame showing now: captured for the reader, or drawn directly without one.
+    const takeSample = () => {
+      const index = k;
+      k++;
+      if (source) {
+        const frame = source.capture(video);
+        if (frame) {
+          queue.push({ index: index, frame: frame });
+          pump();
+          return;
+        }
+      }
+      store(index, video);
+    };
+
     const onFrame = (now, meta) => {
-      if (finished) return;
+      if (playbackOver) return;
       const t = meta.mediaTime;
       // Sample k is the frame nearest to k / fps: this frame is that one when it is within half a frame of the time.
-      while (k < count && t >= start + (k - 0.5) / rate) take();
+      while (k < count && t >= start + (k - 0.5) / rate) takeSample();
       if (k >= count || video.ended) {
         finish();
         return;
+      }
+      if (queue.length >= PLAYBACK_QUEUE_MAX && !pausedForQueue) {
+        pausedForQueue = true;
+        video.pause();
       }
       video.requestVideoFrameCallback(onFrame);
     };
     // Safety: the playback cannot take longer than the clip, plus a margin.
     const limit = setTimeout(finish, (duration + 5) * 1000);
 
+    // The playback has ended (or the sample count is reached). Captured frames still queued are converted first.
     function finish() {
-      if (finished) return;
-      finished = true;
+      if (playbackOver) return;
+      playbackOver = true;
       clearTimeout(limit);
       video.pause();
-      if (k === 0) {
-        reject(new Error('The clip could not be played to read its frames.'));
-        return;
-      }
-      for (let i = k; i < count; i++) {
-        frames[i] = frames[k - 1];
-        analysisFrames[i] = analysisFrames[k - 1];
-        analysisColour[i] = analysisColour[k - 1];
-      }
-      if (onProgress) onProgress(1);
-      resolve({
-        frames: frames,
-        analysisFrames: analysisFrames,
-        analysisColour: analysisColour,
-        analysisWidth: aw,
-        analysisHeight: ah,
-        count: count,
-        fps: rate,
-        duration: count / rate,
-      });
+      if (!pumping) complete(reject, resolve);
     }
 
     video.muted = true;
@@ -175,23 +267,24 @@ function makeContext(w, h) {
   return { canvas: canvas, ctx: ctx };
 }
 
+// Resolves to true when the seek finished, and false when it timed out (a stalled seek cannot hang the pipeline).
 function seekTo(video, t) {
   return new Promise((resolve) => {
     if (Math.abs(video.currentTime - t) < 0.0005 && video.readyState >= 2) {
-      resolve();
+      resolve(true);
       return;
     }
     let done = false;
-    const finish = () => {
+    const finish = (reached) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      video.removeEventListener('seeked', finish);
-      resolve();
+      video.removeEventListener('seeked', onSeeked);
+      resolve(reached);
     };
-    // Fallback so a stalled seek cannot hang the whole pipeline.
-    const timer = setTimeout(finish, 2000);
-    video.addEventListener('seeked', finish);
+    const onSeeked = () => finish(true);
+    const timer = setTimeout(() => finish(false), 2000);
+    video.addEventListener('seeked', onSeeked);
     video.currentTime = t;
   });
 }

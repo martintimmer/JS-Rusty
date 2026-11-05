@@ -10,8 +10,13 @@ import { encodeGif, gifDeltaRegions, gifRegionBytes } from './gif-encoder.js';
 import { blurRGBA } from './blur.js';
 import { exportConverter } from '../media/colour.js';
 import { buildIccProfile, insertPngIcc, insertJpegIcc } from './icc.js';
+import { exportWidth } from './javascript-exporter.js';
 
-export const GIF_MAX_FRAMES = 150;
+// A GIF holds its frames in memory while it is written: one palette index a pixel. The frame budget is what that takes
+// (256 MB), so the frame count depends on the size of the frames. A 960 x 540 GIF holds about 500 frames; a 1920 x 1080
+// one about 130. GIF_MAX_FRAMES is a ceiling on any size.
+export const GIF_FRAME_BYTES = 256 * 1024 * 1024;
+export const GIF_MAX_FRAMES = 1800;
 
 function defaultCanvas() {
   return document.createElement('canvas');
@@ -28,22 +33,28 @@ export function outputSize(data, requestedWidth) {
 
 // Size of a standalone export at a maximum width. Matches encodeData in javascript-exporter.js.
 export function standaloneSize(data, maxWidth) {
-  // Even, as the video encoders need (see exportWidth in javascript-exporter.js).
-  const w0 = Math.max(16, Math.min(data.width, Math.round(maxWidth || data.width)));
-  const w = w0 - (w0 % 2);
+  // The same width rule as the exporter (exportWidth), so the size shown is the size written.
+  const w = exportWidth(data.width, maxWidth);
   const h = Math.max(16, Math.round((data.height * (w / data.width)) / 2) * 2);
   return { w: w, h: h };
+}
+
+// The most frames a GIF of this size can hold within the frame budget.
+export function gifFrameLimit(w, h) {
+  return Math.max(2, Math.min(GIF_MAX_FRAMES, Math.floor(GIF_FRAME_BYTES / Math.max(1, w * h))));
 }
 
 // Frame count, frame rate and length of a GIF of the sequence. exportGif and the export window both use it,
 // so the window reports exactly what will be written.
 // loopSeconds: the length of a still's loop (see stillLoopSeconds in core.js). Video uses its clip length.
-export function gifTiming(data, fps, animated, loopSeconds) {
+// size: { w, h } of the GIF's frames, which sets how many frames fit the budget (optional).
+export function gifTiming(data, fps, animated, loopSeconds, size) {
   const duration = data.duration > 0 ? data.duration : (animated ? (loopSeconds || STILL_LOOP_SECONDS) : 0);
   const wanted = animated ? Math.round(duration * fps) : 1;
-  const frameCount = animated ? Math.max(1, Math.min(GIF_MAX_FRAMES, wanted)) : 1;
-  // A clip longer than GIF_MAX_FRAMES at the chosen rate is sampled at a lower rate, so the GIF covers all of it.
-  const rate = animated && wanted > GIF_MAX_FRAMES ? frameCount / duration : fps;
+  const limit = size ? gifFrameLimit(size.w, size.h) : GIF_MAX_FRAMES;
+  const frameCount = animated ? Math.max(1, Math.min(limit, wanted)) : 1;
+  // Only a clip that does not fit the budget at the chosen rate is sampled at a lower rate, so the GIF still covers it.
+  const rate = animated && wanted > limit ? frameCount / duration : fps;
   return { duration: duration, frameCount: frameCount, rate: rate };
 }
 
@@ -265,7 +276,7 @@ export async function exportGif(opts) {
   const set = colourSet(params.algorithm === 'dither' ? dtResolveColourSet(params.dtPalette, params.dtColours) : null, convert);
   const palette = set ? setGifPalette(set) : gifPalette(pal.bg, pal.stroke);
 
-  const timing = gifTiming(data, fps, animated, opts.loopSeconds);
+  const timing = gifTiming(data, fps, animated, opts.loopSeconds, outputSize(data, opts.width));
   // A still's GIF covers exactly its frames, so its loop is that long. Motion closes over this length, and the last
   // frame leads straight into the first. A video's motion accumulates over its frames, as it does live.
   const isVideoClip = data.duration > 0;

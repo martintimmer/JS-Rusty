@@ -160,6 +160,10 @@
           <em id="fps-val">source</em>
           <label class="fps-auto"><input type="checkbox" id="p-fps-auto" checked /> Auto</label>
         </div>
+        <div class="fps-row">
+          <span class="fps-label">Tones</span>
+          <label class="fps-auto"><input type="checkbox" id="p-auto-levels" checked /> Auto levels (stretch to the clip’s tones, keep highlights below white)</label>
+        </div>
       </section>
     </aside>
 
@@ -677,7 +681,7 @@
             <label class="field" data-export="raster">
               <span><span class="lbl">Width</span></span>
               <select id="export-width">
-                <option value="1920" selected>1920 px (native)</option>
+                <option value="1920" selected>Native resolution</option>
                 <option value="1280">1280 px</option>
                 <option value="960">960 px</option>
                 <option value="640">640 px</option>

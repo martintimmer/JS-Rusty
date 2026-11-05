@@ -13,6 +13,7 @@ import { createArtwork } from '../rendering/artwork.js';
 import { dtResolveSettings } from '../rendering/dither/settings.js';
 import { dtPaletteTable } from '../engines/dither.js';
 import { RangeDecoder, codeIndices, encodeIndices } from './ctx-coder.js';
+import { parseVideoContainer, WindowedVideo } from './window-decoder.js';
 
 // Concatenation order matters: core primitives first, then engines, then the orchestrator.
 const RUNTIME_MODULES = [
@@ -52,6 +53,32 @@ const RUNTIME_MODULES = [
 ];
 
 export const EXPORT_MAX_WIDTH = 960;
+
+// The most a standalone page may need in memory once its frames are decoded (one byte a value, 1 GB). A page that would
+// need more fails to open, so the export refuses it before encoding.
+export const STANDALONE_DECODED_BYTES = 1000 * 1000 * 1000;
+
+// A video whose decoded frames would take more than this (256 MB) is decoded as it plays, a few frames at a time, so
+// it is not held in memory at once (see window-decoder.js). Smaller clips are decoded when the page loads.
+export const STANDALONE_WINDOW_BYTES = 256 * 1024 * 1024;
+
+// The bytes a page needs for its frames once decoded: a Dither loop or video, a rendered loop, or the video frames.
+// Estimates are for the export size, and use the processed size for Dither, which is the larger of the two.
+export function decodedEstimate(data, p, opts, framesWanted, ditherLoop) {
+  if (p.algorithm === 'dither') {
+    const count = ditherLoop
+      ? packedLoopTiming(stillLoopSeconds(p.speed), opts.loopFps || PACKED_LOOP_FPS, data.width * data.height).count
+      : data.count;
+    return count * data.width * data.height;
+  }
+  const w = exportWidth(data.width, opts.maxWidth);
+  const h = Math.max(16, Math.round((data.height * (w / data.width)) / 2) * 2);
+  if (framesWanted) {
+    const timing = loopFrameTiming(stillLoopSeconds(p.speed), opts.loopFps, w * h * 3);
+    return timing.count * w * h * 3;
+  }
+  return data.count * w * h;
+}
 
 export async function buildRuntimeSource() {
   const parts = [];
@@ -392,20 +419,15 @@ export async function encodeData(data, maxWidth, withColour) {
     };
   }
 
-  // Without a video encoder: each frame is stored as the difference from the one before it, and the block is deflated.
-  const packed = new Uint8Array(n * count);
-  let prev = new Uint8Array(n);
-  for (let f = 0; f < count; f++) {
+  // Without a video encoder: each frame is stored as the difference from the one before it, and the frames are deflated
+  // as they are produced, so the whole clip is never held as one array.
+  let prev = null;
+  const compressed = await deflateFrames(count, n, (f, out) => {
     const cur = greyFrame(f);
-    const base = f * n;
-    if (f === 0) {
-      packed.set(cur, base);
-    } else {
-      for (let i = 0; i < n; i++) packed[base + i] = (cur[i] - prev[i]) & 255;
-    }
+    if (!prev) out.set(cur);
+    else for (let i = 0; i < n; i++) out[i] = (cur[i] - prev[i]) & 255;
     prev = cur;
-  }
-  const compressed = await deflate(packed);
+  });
   return {
     width: targetW,
     height: targetH,
@@ -422,35 +444,57 @@ export async function encodeData(data, maxWidth, withColour) {
 // Packed palette indices (Dither). The Dither engine runs for every frame, and each cell's palette index is packed
 // at the smallest bit depth that holds the palette: 1 bit for 2 colours, 2 bits for 3 or 4, 3 bits for 5 to 8, and
 // 4 bits for 9 to 16. The indices are then coded losslessly by the context coder (ctx-coder.js). The standalone file
-// paints the indices with the
-// palette table, so it shows what the app showed, without dithering again at run time.
+// paints the indices with the palette table, so it shows what the app showed, without dithering again at run time.
 export function packedBitsFor(levels) {
   let bits = 1;
   while ((1 << bits) < levels) bits++;
   return bits;
 }
 
-async function encodePacked(data, params) {
+// The Dither loop of an animated still: the frame count and rate that cover one loop, within the frame budget (one
+// palette index a pixel of the processed size, at most PACKED_LOOP_BYTES). The loop always covers exactly its length.
+export const PACKED_LOOP_BYTES = 256 * 1024 * 1024;
+export const PACKED_LOOP_FPS = 12;
+export function packedLoopTiming(loopSeconds, fps, pixels) {
+  const wanted = Math.max(2, Math.round(loopSeconds * fps));
+  const fit = Math.max(2, Math.floor(PACKED_LOOP_BYTES / Math.max(1, pixels)));
+  const count = Math.min(fit, wanted);
+  return { count: count, rate: count / loopSeconds, seconds: loopSeconds };
+}
+
+// The palette indices of a Dither artwork, coded for a standalone file. A video's frames are its clip, at its rate.
+// An animated still (one frame, with its animation on) is rendered as a loop: loop = { seconds, fps } renders one loop
+// with the animation running, so the page moves. Otherwise the picture is fixed, without motion or optics.
+async function encodePacked(data, params, loop) {
   const p = normalizeParams(params);
   const opt = dtResolveSettings(p);
   const bits = packedBitsFor(opt.levels);
+  const timing = loop ? packedLoopTiming(loop.seconds, loop.fps, data.width * data.height) : null;
+  const count = timing ? timing.count : data.count;
+  const rate = timing ? timing.rate : data.fps;
   const art = createArtwork(document.createElement('canvas'), data);
-  // The packed frames are the picture as drawn, without motion or optics: the standalone player only paints them.
-  art.setParams(Object.assign({}, p, { animation: 'off', halation: 0, aberration: 0 }));
-  const frames = [];
+  if (timing) art.setParams(Object.assign({}, p, { halation: 0, aberration: 0 }));
+  else art.setParams(Object.assign({}, p, { animation: 'off', halation: 0, aberration: 0 }));
+  // The indices of all frames, in one array. Each frame is copied into it as it is rendered: the lattice buffer is reused
+  // by the next frame, so it cannot be kept by reference, and no second copy of the frames is made.
+  let indices = null;
   let gw = 0;
   let gh = 0;
-  for (let k = 0; k < data.count; k++) {
-    const r = art.render(k / data.fps, 0, { reset: k === 0 });
+  let cells = 0;
+  for (let k = 0; k < count; k++) {
+    const r = timing
+      ? art.render(k / rate, k === 0 ? 0 : 1 / rate, { reset: k === 0, loop: timing.seconds })
+      : art.render(k / rate, 0, { reset: k === 0 });
     if (!r.lattice) throw new Error('The dither output is not available for export.');
-    gw = r.lattice.gw;
-    gh = r.lattice.gh;
-    frames.push(Uint8Array.from(r.lattice.index));
+    if (!indices) {
+      gw = r.lattice.gw;
+      gh = r.lattice.gh;
+      cells = gw * gh;
+      indices = new Uint8Array(cells * count);
+    }
+    indices.set(r.lattice.index, k * cells);
   }
-  const cells = gw * gh;
-  const indices = new Uint8Array(cells * data.count);
-  frames.forEach((frame, k) => indices.set(frame, k * cells));
-  const coded = encodeIndices(indices, gw, gh, data.count, bits);
+  const coded = encodeIndices(indices, gw, gh, count, bits);
   return {
     mode: 'packed',
     width: data.width * CANVAS_SCALE,
@@ -459,12 +503,27 @@ async function encodePacked(data, params) {
     gh: gh,
     bits: bits,
     levels: opt.levels,
-    count: data.count,
-    fps: data.fps,
-    duration: data.duration,
+    count: count,
+    fps: rate,
+    duration: timing ? timing.seconds : data.duration,
     table: bytesToBase64(dtPaletteTable(opt, resolvePalette(p))),
     frames: bytesToBase64(coded),
   };
+}
+
+// Deflates count frames of frameBytes bytes, made one at a time: fill(f, out) writes frame f into out, which is reused
+// for the next frame. The compressed stream is written as the frames are made, so they are never all held in one array.
+export async function deflateFrames(count, frameBytes, fill) {
+  const cs = new CompressionStream('deflate');
+  const writer = cs.writable.getWriter();
+  const collected = new Response(cs.readable).arrayBuffer();
+  const buf = new Uint8Array(frameBytes);
+  for (let f = 0; f < count; f++) {
+    fill(f, buf);
+    await writer.write(buf.slice());
+  }
+  await writer.close();
+  return new Uint8Array(await collected);
 }
 
 async function deflate(bytes) {
@@ -531,68 +590,46 @@ const DECODER_SOURCE = `
   // Video frames: the container written by the exporter (see buildContainer). The frames are decoded with the browser's
   // video decoder and read back as grey (1 channel) or RGB (3 channels), one array per frame.
   function decodeVideoFrames(d) {
-    var bytes = b64ToBytes(d.frames);
-    if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== 'JSRV' || bytes[4] !== 1) {
-      return Promise.reject(new Error('The frame data is not a JS Rusty video container.'));
-    }
     if (typeof VideoDecoder === 'undefined' || typeof EncodedVideoChunk === 'undefined') {
       return Promise.reject(new Error('This browser cannot decode the video frames (WebCodecs is missing).'));
     }
-    var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    var hlen = view.getUint32(5, true);
-    var header = JSON.parse(new TextDecoder().decode(bytes.subarray(9, 9 + hlen)));
-    var W = header.width, H = header.height, fps = header.fps, count = header.count;
-    var n = W * H, channels = header.channels;
-    var canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var parsed;
+    try {
+      parsed = parseVideoContainer(b64ToBytes(d.frames));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    var header = parsed.header;
+    var count = header.count;
+    var toPixels = videoPixels(header);
     var frames = new Array(count);
     var got = 0;
     return new Promise(function (resolve, reject) {
-      var config = { codec: header.codec, codedWidth: W, codedHeight: H, optimizeForLatency: true };
-      if (header.description) config.description = b64ToBytes(header.description);
       var decoder = new VideoDecoder({
         output: function (frame) {
           try {
-            var index = Math.round((frame.timestamp * fps) / 1e6);
-            ctx.drawImage(frame, 0, 0, W, H);
-            var px = ctx.getImageData(0, 0, W, H).data;
-            var out = new Uint8Array(n * channels);
-            for (var i = 0; i < n; i++) {
-              if (channels === 1) {
-                out[i] = px[i * 4];
-              } else {
-                out[i * 3] = px[i * 4];
-                out[i * 3 + 1] = px[i * 4 + 1];
-                out[i * 3 + 2] = px[i * 4 + 2];
-              }
-            }
+            var index = Math.round((frame.timestamp * header.fps) / 1e6);
             if (index >= 0 && index < count) {
               if (!frames[index]) got++;
-              frames[index] = out;
+              frames[index] = toPixels(frame);
             }
           } catch (err) {
-            reject(err);
+            reject(new Error('The page could not hold the frames of this clip in memory (' + err.message +
+              '). Export a smaller standalone width or a shorter clip.'));
           } finally {
             frame.close();
           }
         },
         error: function (err) { reject(err); }
       });
-      decoder.configure(config);
-      var pos = 9 + hlen;
-      while (pos < bytes.length) {
-        var len = view.getUint32(pos, true);
-        var key = (bytes[pos + 4] & 1) === 1;
-        var index = view.getUint32(pos + 5, true);
-        decoder.decode(new EncodedVideoChunk({
-          type: key ? 'key' : 'delta',
-          timestamp: Math.round((index * 1e6) / fps),
-          data: bytes.subarray(pos + 9, pos + 9 + len)
+      decoder.configure(videoConfig(header));
+      parsed.records.forEach(function (r) {
+        decoder.decode(makeVideoChunk({
+          type: r.key ? 'key' : 'delta',
+          timestamp: Math.round((r.index * 1e6) / header.fps),
+          data: r.data
         }));
-        pos += 9 + len;
-      }
+      });
       decoder.flush().then(function () {
         decoder.close();
         if (got === count) resolve(frames);
@@ -600,9 +637,69 @@ const DECODER_SOURCE = `
       }, reject);
     });
   }
+  // The decoder configuration of a container's header.
+  function videoConfig(header) {
+    var config = { codec: header.codec, codedWidth: header.width, codedHeight: header.height, optimizeForLatency: true };
+    if (header.description) config.description = b64ToBytes(header.description);
+    return config;
+  }
+  // Reads a decoded frame as bytes: grey (one a pixel) or RGB (three), through a canvas of the frame's size.
+  function videoPixels(header) {
+    var W = header.width, H = header.height, n = W * H, channels = header.channels;
+    var canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    return function (frame) {
+      ctx.drawImage(frame, 0, 0, W, H);
+      var px = ctx.getImageData(0, 0, W, H).data;
+      var out = new Uint8Array(n * channels);
+      for (var i = 0; i < n; i++) {
+        if (channels === 1) {
+          out[i] = px[i * 4];
+        } else {
+          out[i * 3] = px[i * 4];
+          out[i * 3 + 1] = px[i * 4 + 1];
+          out[i * 3 + 2] = px[i * 4 + 2];
+        }
+      }
+      return out;
+    };
+  }
+  function makeVideoChunk(opts) {
+    return new EncodedVideoChunk(opts);
+  }
+  // A clip too large to hold in memory is decoded as it plays (see WindowedVideo). This is its window, with no frames yet.
+  function windowedVideo(d) {
+    if (typeof VideoDecoder === 'undefined' || typeof EncodedVideoChunk === 'undefined') {
+      throw new Error('This browser cannot decode the video frames (WebCodecs is missing).');
+    }
+    var parsed = parseVideoContainer(b64ToBytes(d.frames));
+    return new WindowedVideo({
+      count: d.count,
+      fps: parsed.header.fps,
+      chunks: parsed.records,
+      config: videoConfig(parsed.header),
+      makeDecoder: function (output, error) { return new VideoDecoder({ output: output, error: error }); },
+      makeChunk: makeVideoChunk,
+      toPixels: videoPixels(parsed.header)
+    });
+  }
   function decodeArtworkData(d) {
     if (d.mode === 'packed') return new Promise(function (resolve) { resolve(decodePacked(d)); });
-    var framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
+    // A video whose frames would be too large to hold is decoded as it plays. Its frames array starts empty.
+    var win = null;
+    var framesP;
+    if (d.mode === 'video' && d.count * d.width * d.height * d.channels > d.windowBytes) {
+      try {
+        win = windowedVideo(d);
+        framesP = Promise.resolve(win.frames);
+      } catch (err) {
+        framesP = Promise.reject(err);
+      }
+    } else {
+      framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
+    }
     var motionP = d.motion ? Promise.all([
       inflateBytes(b64ToBytes(d.motion.vx)),
       inflateBytes(b64ToBytes(d.motion.vy)),
@@ -621,7 +718,8 @@ const DECODER_SOURCE = `
       }
       return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
                count: d.count, frames: r[0], motion: motion, colour: r[2] ? [r[2]] : null,
-               frameMode: d.mode === 'frames' || (d.mode === 'video' && d.channels === 3) };
+               frameMode: d.mode === 'frames' || (d.mode === 'video' && d.channels === 3),
+               source: win };
     });
   }
 `;
@@ -647,6 +745,9 @@ const MOUNT_SOURCE = `
     var img = cellCtx.createImageData(data.gw, data.gh);
     var pixels = img.data;
     var table = data.table;
+    // The optics the app applies after its engine (halation and aberration). They are not in the palette indices, so the
+    // page applies them to each painted frame, with the same settings and the same scale as the app.
+    var optics = createOpticsState();
     var shown = -1;
     return {
       canvas: canvas,
@@ -669,6 +770,11 @@ const MOUNT_SOURCE = `
         cellCtx.putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cell, 0, 0, data.gw, data.gh, 0, 0, data.width, data.height);
+        if (ARTWORK_PARAMS.halation > 0) {
+          applyHalation(ctx, data.width, data.height, optics, ARTWORK_PARAMS.halation, ARTWORK_PARAMS.halationSize,
+            data.width / 1920);
+        }
+        if (ARTWORK_PARAMS.aberration > 0) applyAberration(ctx, data.width, data.height, optics, ARTWORK_PARAMS.aberration);
         return { ms: 0, elements: idx.length };
       }
     };
@@ -717,6 +823,8 @@ const MOUNT_SOURCE = `
     var art = null, raf = null, last = null, dirty = true, reset = true;
     var playing = opts.autoplay !== false, loop = opts.loop !== false, time = 0, duration = 0;
     var pendingParams = normalizeParams(Object.assign({}, ARTWORK_PARAMS, opts.params || {}));
+    // The loaded data, and its window when the clip is decoded as it plays (null otherwise).
+    var current = null, win = null;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
@@ -733,6 +841,19 @@ const MOUNT_SOURCE = `
         }
       }
       if (continuous || dirty) {
+        if (win && current) {
+          // The frames the renderer reads at this time must be decoded first. Until they are, the last picture stays.
+          var at = frameAt(current, time);
+          try {
+            win.want(at.i0, at.i1);
+          } catch (err) {
+            // A decoder that cannot start leaves the picture as it is; the next frame tries again.
+          }
+          if (!win.ready(at.i0, at.i1)) {
+            dirty = true;
+            return;
+          }
+        }
         art.render(time, continuous ? dt : 0, { reset: reset });
         dirty = false;
         reset = false;
@@ -741,6 +862,9 @@ const MOUNT_SOURCE = `
     canvas.addEventListener('click', function () { api.toggle(); });
     loadArtwork().then(function (data) {
       duration = data.duration > 0 ? data.duration : 0;
+      current = data;
+      win = data.source || null;
+      if (win) win.want(0, 1);
       art = data.packed ? createPackedArtwork(canvas, data)
         : (data.frameMode ? createFrameArtwork(canvas, data) : createArtwork(canvas, data));
       art.setParams(pendingParams);
@@ -760,7 +884,10 @@ const MOUNT_SOURCE = `
         dirty = true;
         reset = true;
       },
-      destroy: function () { if (raf) cancelAnimationFrame(raf); }
+      destroy: function () {
+        if (raf) cancelAnimationFrame(raf);
+        if (win) win.close();
+      }
     };
     return api;
   }
@@ -768,6 +895,8 @@ const MOUNT_SOURCE = `
 
 // The decoder of the context coder, as source text for the standalone file (see ctx-coder.js).
 const CODER_SOURCE = [RangeDecoder, codeIndices].map((f) => f.toString()).join('\n');
+// The video container reader and the on-demand decoder, as source text (see window-decoder.js).
+const WINDOW_SOURCE = [parseVideoContainer, WindowedVideo].map((f) => f.toString()).join('\n');
 
 // Produces the full JavaScript source for the standalone file.
 export async function createStandaloneScript(data, params, options) {
@@ -782,10 +911,28 @@ export async function createStandaloneScript(data, params, options) {
   const framesWanted = !!opts.loopFps && data.count === 1 && !data.duration && p.algorithm !== 'dither' &&
     p.animation !== 'off';
   let payload;
-  if (p.algorithm === 'dither') payload = await encodePacked(data, p);
-  else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
+  // An animated Dither still is a loop of frames (the Loop fps of the export window), so the page moves as the app does.
+  const ditherLoop = p.algorithm === 'dither' && data.count === 1 && !data.duration && p.animation !== 'off';
+  // A page that would not open is refused before anything is encoded. A video that the page decodes as it plays (when
+  // the video encoder is available) is not held in memory, so it is not refused for its decoded size. Other pages must fit.
+  const decoded = decodedEstimate(data, p, opts, framesWanted, ditherLoop);
+  const exportW = exportWidth(data.width, opts.maxWidth);
+  const exportH = Math.max(16, Math.round((data.height * (exportW / data.width)) / 2) * 2);
+  const streamed = p.algorithm !== 'dither' && !framesWanted &&
+    !!(await chooseVideoCodec(exportW, exportH, data.fps, 1));
+  if (decoded > STANDALONE_DECODED_BYTES && !streamed) {
+    throw new Error('This page would need about ' + (decoded / 1e9).toFixed(1) + ' GB of memory to open (the limit is ' +
+      (STANDALONE_DECODED_BYTES / 1e9).toFixed(1) + ' GB). Export a smaller standalone width, or trim the clip.');
+  }
+  if (p.algorithm === 'dither') {
+    payload = await encodePacked(data, p, ditherLoop
+      ? { seconds: stillLoopSeconds(p.speed), fps: opts.loopFps || PACKED_LOOP_FPS }
+      : null);
+  } else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
   else payload = await encodeData(data, opts.maxWidth, withColour);
-  // Packed Dither artwork is a fixed picture (see encodePacked), so it does not carry motion.
+  // The page decodes a video as it plays once its frames pass this size (see decodeArtworkData).
+  payload.windowBytes = STANDALONE_WINDOW_BYTES;
+  // A Dither video or fixed still is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 
   return [
@@ -793,6 +940,7 @@ export async function createStandaloneScript(data, params, options) {
     '(function (global) {',
     "  'use strict';",
     runtime,
+    WINDOW_SOURCE,
     CODER_SOURCE,
     DECODER_SOURCE,
     '  var ARTWORK_DATA = ' + JSON.stringify(payload) + ';',

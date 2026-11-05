@@ -16,8 +16,9 @@ const HLG_PEAK_NITS = 1000;
 const HLG_SCALE = HLG_PEAK_NITS / SDR_WHITE_NITS;
 // HLG's system gamma (BT.2100, 1000 nits): display light = scene light * Y^(gamma - 1).
 const HLG_OOTF_EXPONENT = 0.2;
-// Highlights above this linear level roll off smoothly toward 1 instead of clipping.
-const SHOULDER_KNEE = 0.8;
+// Highlights above this linear level roll off smoothly toward 1 instead of clipping. At 0.9, HLG's 75% signal (SDR white)
+// lands at about 251 rather than 246: the research on BT.2408 puts SDR white at 75%, so less headroom is taken from it.
+const SHOULDER_KNEE = 0.9;
 
 const D65 = [0.3127, 0.329];
 const PRIMARIES = {
@@ -25,7 +26,12 @@ const PRIMARIES = {
   bt2020: { r: [0.708, 0.292], g: [0.17, 0.797], b: [0.131, 0.046] },
   // Display P3: the DCI-P3 primaries with the D65 white, and the sRGB curve.
   p3: { r: [0.68, 0.32], g: [0.265, 0.69], b: [0.15, 0.06] },
+  // DCI-P3, the cinema primaries, with the DCI white (x 0.314, y 0.351). Converted to D65 by Bradford adaptation, so a
+  // DCI-P3 source maps to the same white as the others. Used for a source tagged DCI-P3 (SMPTE 431).
+  'dci-p3': { r: [0.68, 0.32], g: [0.265, 0.69], b: [0.15, 0.06], white: [0.314, 0.351] },
 };
+// Bradford cone response matrix, used to adapt one white point to another.
+const BRADFORD = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296];
 
 // Where each output colour option sends its primaries and curve.
 const TARGETS = {
@@ -71,6 +77,17 @@ export function shoulder(l) {
   return SHOULDER_KNEE + (1 - SHOULDER_KNEE) * (1 - Math.exp(-(l - SHOULDER_KNEE) / (1 - SHOULDER_KNEE)));
 }
 
+// The largest s from 0 to 1 for which L + s * (c - L) stays within 0 to 1 for each channel c. Scaling a colour's
+// difference from its luminance by s keeps its luminance and its hue, and brings it into gamut.
+export function gamutScale(r, g, b, L) {
+  let s = 1;
+  for (const c of [r, g, b]) {
+    if (c > 1 && c > L) s = Math.min(s, (1 - L) / (c - L));
+    else if (c < 0 && c < L) s = Math.min(s, L / (L - c));
+  }
+  return s < 0 ? 0 : s;
+}
+
 function decodeFn(transfer) {
   switch (transfer) {
     case 'srgb': return srgbEotf;
@@ -114,20 +131,33 @@ export function mulVec(m, v) {
     m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
   ];
 }
-// Linear RGB to CIE XYZ (white at Y = 1) for a set of primaries with the D65 white.
+// The Bradford matrix that moves XYZ from one white point to another (both XYZ, white at Y = 1).
+function bradfordAdapt(srcWhite, dstWhite) {
+  const rs = mulVec(BRADFORD, srcWhite);
+  const rd = mulVec(BRADFORD, dstWhite);
+  const scale = [rd[0] / rs[0], 0, 0, 0, rd[1] / rs[1], 0, 0, 0, rd[2] / rs[2]];
+  return matMul(matInv(BRADFORD), matMul(scale, BRADFORD));
+}
+
+// Linear RGB to CIE XYZ (white at Y = 1), adapted to the D65 white, for a set of primaries.
 export function rgbToXyz(name) {
   const p = PRIMARIES[name];
   const column = (x, y) => [x / y, 1, (1 - x - y) / y];
   const R = column(p.r[0], p.r[1]);
   const G = column(p.g[0], p.g[1]);
   const B = column(p.b[0], p.b[1]);
-  const W = column(D65[0], D65[1]);
+  // The primaries are scaled to their own white (D65, or the DCI white for DCI-P3).
+  const white = p.white || D65;
+  const W = column(white[0], white[1]);
   const s = mulVec(matInv([R[0], G[0], B[0], R[1], G[1], B[1], R[2], G[2], B[2]]), W);
-  return [
+  const m = [
     R[0] * s[0], G[0] * s[1], B[0] * s[2],
     R[1] * s[0], G[1] * s[1], B[1] * s[2],
     R[2] * s[0], G[2] * s[1], B[2] * s[2],
   ];
+  if (!p.white) return m;
+  // Adapt the DCI white to D65, so the result is comparable with the other primaries.
+  return matMul(bradfordAdapt(W, column(D65[0], D65[1])), m);
 }
 // Linear RGB of one primaries set to linear RGB of another (both with the D65 white).
 export function primariesMatrix(from, to) {
@@ -152,14 +182,17 @@ export function createConverter(src, target) {
 
   const m = primariesMatrix(primaries, dst.primaries);
   const luma = rgbToXyz(primaries).slice(3, 6);
+  // The luminance row of the output space, used to shoulder and to gamut-map the output colour.
+  const outLuma = rgbToXyz(dst.primaries).slice(3, 6);
 
-  // Linear to encoded, indexed by a square-root warp of the linear value, so the dark end keeps its steps.
+  // Linear to encoded, indexed by a square-root warp of the linear value, so the dark end keeps its steps. Values
+  // reach this table already in gamut (0 to 1), so no shoulder is needed here.
   const encode = encodeFn(dst.transfer);
   const encodeLut = new Uint8Array(LUT_N);
   for (let k = 0; k < LUT_N; k++) {
     const u = k / (LUT_N - 1);
     const lin = u * u * LIN_MAX;
-    const v = encode(hdr ? shoulder(lin) : lin);
+    const v = encode(lin);
     encodeLut[k] = Math.max(0, Math.min(255, Math.round(255 * v)));
   }
   const linIndex = (lin) => {
@@ -188,9 +221,25 @@ export function createConverter(src, target) {
         G *= f;
         B *= f;
       }
-      const rl = m[0] * R + m[1] * G + m[2] * B;
-      const gl = m[3] * R + m[4] * G + m[5] * B;
-      const bl = m[6] * R + m[7] * G + m[8] * B;
+      let rl = m[0] * R + m[1] * G + m[2] * B;
+      let gl = m[3] * R + m[4] * G + m[5] * B;
+      let bl = m[6] * R + m[7] * G + m[8] * B;
+      // The luminance of the output colour. For HDR it is shouldered, and the colour is scaled with it, so the hue stays.
+      let L = outLuma[0] * rl + outLuma[1] * gl + outLuma[2] * bl;
+      if (hdr && L > 0) {
+        const k = shoulder(L) / L;
+        rl *= k;
+        gl *= k;
+        bl *= k;
+        L = shoulder(L);
+      }
+      // A colour outside the output gamut is brought in by desaturating it toward its own luminance, so its hue is kept.
+      // Clipping each channel instead would turn a saturated blue toward purple or white.
+      L = L < 0 ? 0 : (L > 1 ? 1 : L);
+      const s = gamutScale(rl, gl, bl, L);
+      rl = L + s * (rl - L);
+      gl = L + s * (gl - L);
+      bl = L + s * (bl - L);
       out[o] = encodeLut[linIndex(rl)];
       out[o + 1] = encodeLut[linIndex(gl)];
       out[o + 2] = encodeLut[linIndex(bl)];
@@ -274,7 +323,7 @@ function clamp01(v) {
 // ---------- Tags and names ----------
 
 // Names for the numbers in an MP4 'colr' box (ISO/IEC 23001-8 and 23091-2 code points).
-const COLR_PRIMARIES = { 1: 'bt709', 9: 'bt2020', 11: 'p3', 12: 'p3' };
+const COLR_PRIMARIES = { 1: 'bt709', 9: 'bt2020', 11: 'dci-p3', 12: 'p3' };
 const COLR_TRANSFER = { 1: 'bt709', 8: 'linear', 13: 'srgb', 16: 'pq', 18: 'hlg' };
 const COLR_MATRIX = { 0: 'rgb', 1: 'bt709', 5: 'bt601', 6: 'bt601', 9: 'bt2020' };
 
@@ -289,7 +338,7 @@ export function tagsFromColr(colr) {
 
 // Tags from a WebCodecs VideoFrame.colorSpace (strings from the WebCodecs registry).
 export function tagsFromColorSpace(cs) {
-  const primaries = { bt709: 'bt709', bt2020: 'bt2020', smpte432: 'p3', smpte431: 'p3' }[cs.primaries] || 'unknown';
+  const primaries = { bt709: 'bt709', bt2020: 'bt2020', smpte432: 'p3', smpte431: 'dci-p3' }[cs.primaries] || 'unknown';
   const transfer = {
     bt709: 'bt709', smpte170m: 'bt709', 'iec61966-2-1': 'srgb', linear: 'linear', hlg: 'hlg', pq: 'pq',
   }[cs.transfer] || 'unknown';
@@ -304,7 +353,7 @@ export function needsColourPipeline(tags) {
   return !!tags && (tags.transfer === 'hlg' || tags.transfer === 'pq' || tags.primaries === 'bt2020');
 }
 
-const PRIMARY_NAMES = { bt709: 'Rec. 709', bt2020: 'Rec. 2020', p3: 'P3' };
+const PRIMARY_NAMES = { bt709: 'Rec. 709', bt2020: 'Rec. 2020', p3: 'Display P3', 'dci-p3': 'DCI-P3' };
 const TRANSFER_NAMES = { bt709: 'Rec. 709 curve', srgb: 'sRGB curve', linear: 'linear', hlg: 'HLG (HDR)', pq: 'PQ (HDR)' };
 
 // A short description of a source's colour, for the info panel: "Rec. 2020 · HLG (HDR)".

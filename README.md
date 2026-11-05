@@ -44,7 +44,7 @@ ES modules and Web Workers need HTTP, so do not open `index.html` from `file://`
 do work from `file://`.
 
 Browsers: current Chrome, Edge, Firefox or Safari. WebM recording needs MediaRecorder with VP8 or VP9.
-Standalone exports need `CompressionStream` and `DecompressionStream` (Chrome 80+, Firefox 113+,
+Long video clips (more than 256 MB of decoded frames) are decoded as the page plays, a few frames at a time. Standalone exports need `CompressionStream` and `DecompressionStream` (Chrome 80+, Firefox 113+,
 Safari 16.4+).
 
 ### 2.1 On iPhone, iPad and iPadOS

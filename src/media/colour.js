@@ -16,8 +16,9 @@ const HLG_PEAK_NITS = 1000;
 const HLG_SCALE = HLG_PEAK_NITS / SDR_WHITE_NITS;
 // HLG's system gamma (BT.2100, 1000 nits): display light = scene light * Y^(gamma - 1).
 const HLG_OOTF_EXPONENT = 0.2;
-// Highlights above this linear level roll off smoothly toward 1 instead of clipping.
-const SHOULDER_KNEE = 0.8;
+// Highlights above this linear level roll off smoothly toward 1 instead of clipping. At 0.9, HLG's 75% signal (SDR white)
+// lands at about 251 rather than 246: the research on BT.2408 puts SDR white at 75%, so less headroom is taken from it.
+const SHOULDER_KNEE = 0.9;
 
 const D65 = [0.3127, 0.329];
 const PRIMARIES = {
@@ -25,7 +26,12 @@ const PRIMARIES = {
   bt2020: { r: [0.708, 0.292], g: [0.17, 0.797], b: [0.131, 0.046] },
   // Display P3: the DCI-P3 primaries with the D65 white, and the sRGB curve.
   p3: { r: [0.68, 0.32], g: [0.265, 0.69], b: [0.15, 0.06] },
+  // DCI-P3, the cinema primaries, with the DCI white (x 0.314, y 0.351). Converted to D65 by Bradford adaptation, so a
+  // DCI-P3 source maps to the same white as the others. Used for a source tagged DCI-P3 (SMPTE 431).
+  'dci-p3': { r: [0.68, 0.32], g: [0.265, 0.69], b: [0.15, 0.06], white: [0.314, 0.351] },
 };
+// Bradford cone response matrix, used to adapt one white point to another.
+const BRADFORD = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296];
 
 // Where each output colour option sends its primaries and curve.
 const TARGETS = {
@@ -114,20 +120,33 @@ export function mulVec(m, v) {
     m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
   ];
 }
-// Linear RGB to CIE XYZ (white at Y = 1) for a set of primaries with the D65 white.
+// The Bradford matrix that moves XYZ from one white point to another (both XYZ, white at Y = 1).
+function bradfordAdapt(srcWhite, dstWhite) {
+  const rs = mulVec(BRADFORD, srcWhite);
+  const rd = mulVec(BRADFORD, dstWhite);
+  const scale = [rd[0] / rs[0], 0, 0, 0, rd[1] / rs[1], 0, 0, 0, rd[2] / rs[2]];
+  return matMul(matInv(BRADFORD), matMul(scale, BRADFORD));
+}
+
+// Linear RGB to CIE XYZ (white at Y = 1), adapted to the D65 white, for a set of primaries.
 export function rgbToXyz(name) {
   const p = PRIMARIES[name];
   const column = (x, y) => [x / y, 1, (1 - x - y) / y];
   const R = column(p.r[0], p.r[1]);
   const G = column(p.g[0], p.g[1]);
   const B = column(p.b[0], p.b[1]);
-  const W = column(D65[0], D65[1]);
+  // The primaries are scaled to their own white (D65, or the DCI white for DCI-P3).
+  const white = p.white || D65;
+  const W = column(white[0], white[1]);
   const s = mulVec(matInv([R[0], G[0], B[0], R[1], G[1], B[1], R[2], G[2], B[2]]), W);
-  return [
+  const m = [
     R[0] * s[0], G[0] * s[1], B[0] * s[2],
     R[1] * s[0], G[1] * s[1], B[1] * s[2],
     R[2] * s[0], G[2] * s[1], B[2] * s[2],
   ];
+  if (!p.white) return m;
+  // Adapt the DCI white to D65, so the result is comparable with the other primaries.
+  return matMul(bradfordAdapt(W, column(D65[0], D65[1])), m);
 }
 // Linear RGB of one primaries set to linear RGB of another (both with the D65 white).
 export function primariesMatrix(from, to) {
@@ -274,7 +293,7 @@ function clamp01(v) {
 // ---------- Tags and names ----------
 
 // Names for the numbers in an MP4 'colr' box (ISO/IEC 23001-8 and 23091-2 code points).
-const COLR_PRIMARIES = { 1: 'bt709', 9: 'bt2020', 11: 'p3', 12: 'p3' };
+const COLR_PRIMARIES = { 1: 'bt709', 9: 'bt2020', 11: 'dci-p3', 12: 'p3' };
 const COLR_TRANSFER = { 1: 'bt709', 8: 'linear', 13: 'srgb', 16: 'pq', 18: 'hlg' };
 const COLR_MATRIX = { 0: 'rgb', 1: 'bt709', 5: 'bt601', 6: 'bt601', 9: 'bt2020' };
 
@@ -289,7 +308,7 @@ export function tagsFromColr(colr) {
 
 // Tags from a WebCodecs VideoFrame.colorSpace (strings from the WebCodecs registry).
 export function tagsFromColorSpace(cs) {
-  const primaries = { bt709: 'bt709', bt2020: 'bt2020', smpte432: 'p3', smpte431: 'p3' }[cs.primaries] || 'unknown';
+  const primaries = { bt709: 'bt709', bt2020: 'bt2020', smpte432: 'p3', smpte431: 'dci-p3' }[cs.primaries] || 'unknown';
   const transfer = {
     bt709: 'bt709', smpte170m: 'bt709', 'iec61966-2-1': 'srgb', linear: 'linear', hlg: 'hlg', pq: 'pq',
   }[cs.transfer] || 'unknown';
@@ -304,7 +323,7 @@ export function needsColourPipeline(tags) {
   return !!tags && (tags.transfer === 'hlg' || tags.transfer === 'pq' || tags.primaries === 'bt2020');
 }
 
-const PRIMARY_NAMES = { bt709: 'Rec. 709', bt2020: 'Rec. 2020', p3: 'P3' };
+const PRIMARY_NAMES = { bt709: 'Rec. 709', bt2020: 'Rec. 2020', p3: 'Display P3', 'dci-p3': 'DCI-P3' };
 const TRANSFER_NAMES = { bt709: 'Rec. 709 curve', srgb: 'sRGB curve', linear: 'linear', hlg: 'HLG (HDR)', pq: 'PQ (HDR)' };
 
 // A short description of a source's colour, for the info panel: "Rec. 2020 · HLG (HDR)".

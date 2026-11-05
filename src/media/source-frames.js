@@ -21,6 +21,7 @@ export function canReadPlanes() {
 export function createSourceReader(fileTags) {
   const converters = new Map();
   let broken = false;
+  let scratch = null; // holds a turned frame until it is drawn in the element's orientation
 
   const converterFor = (tags) => {
     const key = JSON.stringify(tags);
@@ -56,7 +57,12 @@ export function createSourceReader(fileTags) {
         const spec = FORMATS[frame.format];
         const w = frame.visibleRect ? frame.visibleRect.width : frame.codedWidth;
         const h = frame.visibleRect ? frame.visibleRect.height : frame.codedHeight;
-        if (!spec || w !== video.videoWidth || h !== video.videoHeight || (w & 1) || (h & 1)) {
+        // The frame is either in the element's orientation (same width and height), or in its coded orientation, turned
+        // a quarter (width and height swapped). The track's rotation says which way to turn it. Anything else is not read.
+        const sameShape = w === video.videoWidth && h === video.videoHeight;
+        const turned = !sameShape && w === video.videoHeight && h === video.videoWidth;
+        const quarter = (fileTags && fileTags.rotation) === 90 || (fileTags && fileTags.rotation) === 270;
+        if (!spec || (!sameShape && !(turned && quarter)) || (w & 1) || (h & 1)) {
           broken = true;
           return false;
         }
@@ -72,9 +78,30 @@ export function createSourceReader(fileTags) {
           matrix: tags.matrix,
           planes: layouts.map((l) => ({ data: buf, offset: l.offset, stride: l.stride })),
         }, converterFor(tags));
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+        if (sameShape) {
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+          return true;
+        }
+        // Turn the coded frame into the element's orientation: 90 degrees clockwise, or 270 (90 counter-clockwise).
+        if (!scratch) scratch = document.createElement('canvas');
+        scratch.width = w;
+        scratch.height = h;
+        scratch.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.save();
+        if (fileTags.rotation === 90) {
+          ctx.translate(canvas.width, 0);
+          ctx.rotate(Math.PI / 2);
+        } else {
+          ctx.translate(0, canvas.height);
+          ctx.rotate(-Math.PI / 2);
+        }
+        ctx.drawImage(scratch, 0, 0);
+        ctx.restore();
         return true;
       } catch (err) {
         broken = true;

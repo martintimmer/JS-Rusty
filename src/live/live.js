@@ -6,7 +6,7 @@
 // on this device. Opening a clip hands it to the normal video path in app.js. Nothing is uploaded.
 
 import { createArtwork } from '../rendering/artwork.js';
-import { autoLevels } from '../media/tone.js';
+import { histogramOf, applyLevels, LevelsTracker } from '../media/tone.js';
 import { DT_PALETTE_LIBRARY } from '../rendering/dither/palettes.js';
 import { pickMp4Mime, pickWebmMime } from '../export/video-exporter.js';
 import { formatBytes } from '../ui.js';
@@ -476,8 +476,10 @@ function processFrame() {
   const size = drawFrame(video.videoWidth, video.videoHeight);
   ensureArtwork(size.w, size.h);
   grabFrame();
-  // The same tone stretch the editor applies to a clip, so the preview's tones match an editor render of the same settings.
-  autoLevels([live.data.frames], [live.data.colour]);
+  // Tone levels for the camera: each frame's levels are blended into the running ones, which reset at a scene cut, so the
+  // tones move slowly instead of pumping with every frame. A clip in the editor uses one set of levels for the whole clip.
+  const measured = histogramOf([live.data.frames]);
+  applyLevels([live.data.frames], [live.data.colour], live.levels.update(measured.hist, measured.total));
   // The settings reach the preview only when they change: the signature is cheap to compare.
   const sig = JSON.stringify(live.options.getParams());
   if (sig !== live.paramSig) {
@@ -608,6 +610,8 @@ function ensureArtwork(vw, vh) {
   };
   live.art = createArtwork(live.canvas, live.data);
   live.paramSig = '';
+  // The tone levels of the camera are tracked from frame to frame (see processFrame); a new size starts them afresh.
+  live.levels = new LevelsTracker();
   const grab = document.createElement('canvas');
   grab.width = W;
   grab.height = H;

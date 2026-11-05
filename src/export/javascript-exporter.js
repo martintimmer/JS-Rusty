@@ -53,6 +53,28 @@ const RUNTIME_MODULES = [
 
 export const EXPORT_MAX_WIDTH = 960;
 
+// The most a standalone page may need in memory once its frames are decoded (one byte a value, 1 GB). A page that would
+// need more fails to open, so the export refuses it before encoding.
+export const STANDALONE_DECODED_BYTES = 1000 * 1000 * 1000;
+
+// The bytes a page needs for its frames once decoded: a Dither loop or video, a rendered loop, or the video frames.
+// Estimates are for the export size, and use the processed size for Dither, which is the larger of the two.
+export function decodedEstimate(data, p, opts, framesWanted, ditherLoop) {
+  if (p.algorithm === 'dither') {
+    const count = ditherLoop
+      ? packedLoopTiming(stillLoopSeconds(p.speed), opts.loopFps || PACKED_LOOP_FPS, data.width * data.height).count
+      : data.count;
+    return count * data.width * data.height;
+  }
+  const w = exportWidth(data.width, opts.maxWidth);
+  const h = Math.max(16, Math.round((data.height * (w / data.width)) / 2) * 2);
+  if (framesWanted) {
+    const timing = loopFrameTiming(stillLoopSeconds(p.speed), opts.loopFps, w * h * 3);
+    return timing.count * w * h * 3;
+  }
+  return data.count * w * h;
+}
+
 export async function buildRuntimeSource() {
   const parts = [];
   for (const rel of RUNTIME_MODULES) {
@@ -392,20 +414,15 @@ export async function encodeData(data, maxWidth, withColour) {
     };
   }
 
-  // Without a video encoder: each frame is stored as the difference from the one before it, and the block is deflated.
-  const packed = new Uint8Array(n * count);
-  let prev = new Uint8Array(n);
-  for (let f = 0; f < count; f++) {
+  // Without a video encoder: each frame is stored as the difference from the one before it, and the frames are deflated
+  // as they are produced, so the whole clip is never held as one array.
+  let prev = null;
+  const compressed = await deflateFrames(count, n, (f, out) => {
     const cur = greyFrame(f);
-    const base = f * n;
-    if (f === 0) {
-      packed.set(cur, base);
-    } else {
-      for (let i = 0; i < n; i++) packed[base + i] = (cur[i] - prev[i]) & 255;
-    }
+    if (!prev) out.set(cur);
+    else for (let i = 0; i < n; i++) out[i] = (cur[i] - prev[i]) & 255;
     prev = cur;
-  }
-  const compressed = await deflate(packed);
+  });
   return {
     width: targetW,
     height: targetH,
@@ -422,35 +439,57 @@ export async function encodeData(data, maxWidth, withColour) {
 // Packed palette indices (Dither). The Dither engine runs for every frame, and each cell's palette index is packed
 // at the smallest bit depth that holds the palette: 1 bit for 2 colours, 2 bits for 3 or 4, 3 bits for 5 to 8, and
 // 4 bits for 9 to 16. The indices are then coded losslessly by the context coder (ctx-coder.js). The standalone file
-// paints the indices with the
-// palette table, so it shows what the app showed, without dithering again at run time.
+// paints the indices with the palette table, so it shows what the app showed, without dithering again at run time.
 export function packedBitsFor(levels) {
   let bits = 1;
   while ((1 << bits) < levels) bits++;
   return bits;
 }
 
-async function encodePacked(data, params) {
+// The Dither loop of an animated still: the frame count and rate that cover one loop, within the frame budget (one
+// palette index a pixel of the processed size, at most PACKED_LOOP_BYTES). The loop always covers exactly its length.
+export const PACKED_LOOP_BYTES = 256 * 1024 * 1024;
+export const PACKED_LOOP_FPS = 12;
+export function packedLoopTiming(loopSeconds, fps, pixels) {
+  const wanted = Math.max(2, Math.round(loopSeconds * fps));
+  const fit = Math.max(2, Math.floor(PACKED_LOOP_BYTES / Math.max(1, pixels)));
+  const count = Math.min(fit, wanted);
+  return { count: count, rate: count / loopSeconds, seconds: loopSeconds };
+}
+
+// The palette indices of a Dither artwork, coded for a standalone file. A video's frames are its clip, at its rate.
+// An animated still (one frame, with its animation on) is rendered as a loop: loop = { seconds, fps } renders one loop
+// with the animation running, so the page moves. Otherwise the picture is fixed, without motion or optics.
+async function encodePacked(data, params, loop) {
   const p = normalizeParams(params);
   const opt = dtResolveSettings(p);
   const bits = packedBitsFor(opt.levels);
+  const timing = loop ? packedLoopTiming(loop.seconds, loop.fps, data.width * data.height) : null;
+  const count = timing ? timing.count : data.count;
+  const rate = timing ? timing.rate : data.fps;
   const art = createArtwork(document.createElement('canvas'), data);
-  // The packed frames are the picture as drawn, without motion or optics: the standalone player only paints them.
-  art.setParams(Object.assign({}, p, { animation: 'off', halation: 0, aberration: 0 }));
-  const frames = [];
+  if (timing) art.setParams(Object.assign({}, p, { halation: 0, aberration: 0 }));
+  else art.setParams(Object.assign({}, p, { animation: 'off', halation: 0, aberration: 0 }));
+  // The indices of all frames, in one array. Each frame is copied into it as it is rendered: the lattice buffer is reused
+  // by the next frame, so it cannot be kept by reference, and no second copy of the frames is made.
+  let indices = null;
   let gw = 0;
   let gh = 0;
-  for (let k = 0; k < data.count; k++) {
-    const r = art.render(k / data.fps, 0, { reset: k === 0 });
+  let cells = 0;
+  for (let k = 0; k < count; k++) {
+    const r = timing
+      ? art.render(k / rate, k === 0 ? 0 : 1 / rate, { reset: k === 0, loop: timing.seconds })
+      : art.render(k / rate, 0, { reset: k === 0 });
     if (!r.lattice) throw new Error('The dither output is not available for export.');
-    gw = r.lattice.gw;
-    gh = r.lattice.gh;
-    frames.push(Uint8Array.from(r.lattice.index));
+    if (!indices) {
+      gw = r.lattice.gw;
+      gh = r.lattice.gh;
+      cells = gw * gh;
+      indices = new Uint8Array(cells * count);
+    }
+    indices.set(r.lattice.index, k * cells);
   }
-  const cells = gw * gh;
-  const indices = new Uint8Array(cells * data.count);
-  frames.forEach((frame, k) => indices.set(frame, k * cells));
-  const coded = encodeIndices(indices, gw, gh, data.count, bits);
+  const coded = encodeIndices(indices, gw, gh, count, bits);
   return {
     mode: 'packed',
     width: data.width * CANVAS_SCALE,
@@ -459,12 +498,27 @@ async function encodePacked(data, params) {
     gh: gh,
     bits: bits,
     levels: opt.levels,
-    count: data.count,
-    fps: data.fps,
-    duration: data.duration,
+    count: count,
+    fps: rate,
+    duration: timing ? timing.seconds : data.duration,
     table: bytesToBase64(dtPaletteTable(opt, resolvePalette(p))),
     frames: bytesToBase64(coded),
   };
+}
+
+// Deflates count frames of frameBytes bytes, made one at a time: fill(f, out) writes frame f into out, which is reused
+// for the next frame. The compressed stream is written as the frames are made, so they are never all held in one array.
+export async function deflateFrames(count, frameBytes, fill) {
+  const cs = new CompressionStream('deflate');
+  const writer = cs.writable.getWriter();
+  const collected = new Response(cs.readable).arrayBuffer();
+  const buf = new Uint8Array(frameBytes);
+  for (let f = 0; f < count; f++) {
+    fill(f, buf);
+    await writer.write(buf.slice());
+  }
+  await writer.close();
+  return new Uint8Array(await collected);
 }
 
 async function deflate(bytes) {
@@ -573,7 +627,8 @@ const DECODER_SOURCE = `
               frames[index] = out;
             }
           } catch (err) {
-            reject(err);
+            reject(new Error('The page could not hold the frames of this clip in memory (' + err.message +
+              '). Export a smaller standalone width or a shorter clip.'));
           } finally {
             frame.close();
           }
@@ -647,6 +702,9 @@ const MOUNT_SOURCE = `
     var img = cellCtx.createImageData(data.gw, data.gh);
     var pixels = img.data;
     var table = data.table;
+    // The optics the app applies after its engine (halation and aberration). They are not in the palette indices, so the
+    // page applies them to each painted frame, with the same settings and the same scale as the app.
+    var optics = createOpticsState();
     var shown = -1;
     return {
       canvas: canvas,
@@ -669,6 +727,11 @@ const MOUNT_SOURCE = `
         cellCtx.putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cell, 0, 0, data.gw, data.gh, 0, 0, data.width, data.height);
+        if (ARTWORK_PARAMS.halation > 0) {
+          applyHalation(ctx, data.width, data.height, optics, ARTWORK_PARAMS.halation, ARTWORK_PARAMS.halationSize,
+            data.width / 1920);
+        }
+        if (ARTWORK_PARAMS.aberration > 0) applyAberration(ctx, data.width, data.height, optics, ARTWORK_PARAMS.aberration);
         return { ms: 0, elements: idx.length };
       }
     };
@@ -782,10 +845,22 @@ export async function createStandaloneScript(data, params, options) {
   const framesWanted = !!opts.loopFps && data.count === 1 && !data.duration && p.algorithm !== 'dither' &&
     p.animation !== 'off';
   let payload;
-  if (p.algorithm === 'dither') payload = await encodePacked(data, p);
-  else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
+  // An animated Dither still is a loop of frames (the Loop fps of the export window), so the page moves as the app does.
+  const ditherLoop = p.algorithm === 'dither' && data.count === 1 && !data.duration && p.animation !== 'off';
+  // Refuse a page that would not open: the frames are decoded into memory when it loads, so the check is made before
+  // anything is encoded, and the message says what would fit.
+  const decoded = decodedEstimate(data, p, opts, framesWanted, ditherLoop);
+  if (decoded > STANDALONE_DECODED_BYTES) {
+    throw new Error('This page would need about ' + (decoded / 1e9).toFixed(1) + ' GB of memory to open (the limit is ' +
+      (STANDALONE_DECODED_BYTES / 1e9).toFixed(1) + ' GB). Export a smaller standalone width, or trim the clip.');
+  }
+  if (p.algorithm === 'dither') {
+    payload = await encodePacked(data, p, ditherLoop
+      ? { seconds: stillLoopSeconds(p.speed), fps: opts.loopFps || PACKED_LOOP_FPS }
+      : null);
+  } else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
   else payload = await encodeData(data, opts.maxWidth, withColour);
-  // Packed Dither artwork is a fixed picture (see encodePacked), so it does not carry motion.
+  // A Dither video or fixed still is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 
   return [

@@ -47,6 +47,7 @@ const ANIMATIONS_ENABLED = true;
 const $ = UI.DOM.get;
 
 const state = {
+  autoLevels: true,   // Auto levels (Source panel): stretch the tones of a clip to its levels, see media/tone.js
   media: null,        // { kind, name, size, width, height, duration, url, element }
   data: null,         // processed frame sequence + motion (see rendering/artwork.js)
   artwork: null,
@@ -282,8 +283,13 @@ function colourLine(colour) {
 }
 
 // What the preview shows: sRGB converted from the clip, or the browser's own conversion where it cannot be converted.
+// The path is what sampling actually did (previewPath, set after the clip is sampled). Before that, a clip with a colour
+// reader is shown as "converted when sampled".
 function previewLine(m) {
-  if (m.colourReader) return 'sRGB, converted from the clip’s colour';
+  if (m.previewPath === 'converted') return 'sRGB, converted from the clip’s colour';
+  if (m.previewPath === 'mixed') return 'Partly converted: some frames used the browser’s conversion';
+  if (m.previewPath === 'browser') return 'Browser conversion: highlights may clip';
+  if (m.colourReader) return 'sRGB, converted when the clip is sampled';
   if (needsColourPipeline(m.colour)) return 'Browser conversion: highlights may clip';
   return 'sRGB (browser)';
 }
@@ -299,6 +305,10 @@ function bindProcessing() {
     processMedia();
   });
   $('p-res').addEventListener('change', processMedia);
+  $('p-auto-levels').addEventListener('change', () => {
+    state.autoLevels = $('p-auto-levels').checked;
+    processMedia();
+  });
   syncFpsControl();
 }
 
@@ -410,9 +420,20 @@ async function processMedia() {
       });
     }
 
+    // What sampling actually did with the colour reader, shown in the Source panel.
+    if (media.kind === 'video') {
+      media.previewPath = sequence.path || null;
+      UI.setText('info-preview', previewLine(media));
+    }
+    // Samples whose seek never arrived repeat the frame before them. The count is reported with the result.
+    const stallNote = sequence.stalled
+      ? ' ' + sequence.stalled + ' sample(s) could not be sought in time, so they repeat the frame before.'
+      : '';
+
     // One tone mapping for the whole sequence, applied to display and analysis frames. The colour frames are scaled by
-    // the same mapping of their luminance, so their tones match the grey frames and their hues stay.
-    autoLevels([sequence.frames, sequence.analysisFrames], [sequence.analysisColour]);
+    // the same mapping of their luminance, so their tones match the grey frames and their hues stay. The levels can be
+    // switched off (Auto levels in the Source panel) to compare the picture as it was decoded.
+    if (state.autoLevels) autoLevels([sequence.frames, sequence.analysisFrames], [sequence.analysisColour]);
 
     let motion = null;
     if (media.kind === 'video') {
@@ -440,7 +461,7 @@ async function processMedia() {
     UI.setText('info-processed', media.kind === 'video'
       ? sequence.count + ' frames at ' + Math.round(sequence.fps * 100) / 100 + ' fps, ' + W + '×' + H
       : '1 frame at ' + W + '×' + H);
-    setStatus('Artwork ready.' + sizeNote, false);
+    setStatus('Artwork ready.' + sizeNote + stallNote, false);
     if (media.kind === 'video') playProcessedVideo();
   } catch (err) {
     UI.setProgress(null);
@@ -969,6 +990,9 @@ function exportSource() {
     recordSeconds: isVideo ? state.data.duration : stillLoopSeconds(state.artwork.params.speed),
     // Dither artwork is exported as packed palette indices (see javascript-exporter.js).
     packed: state.artwork.params.algorithm === 'dither',
+    // The clip has colour the preview clips to sRGB (Rec. 2020 or a P3 primaries tag). P3 export keeps only sRGB colour.
+    wideGamut: isVideo && !!state.media.colour &&
+      ['bt2020', 'p3', 'dci-p3'].indexOf(state.media.colour.primaries) >= 0,
   };
 }
 
@@ -992,7 +1016,9 @@ async function runExport(kind, s) {
   if (!state.data) return;
   const params = state.artwork.params;
   const framesWanted = s.loopMode === 'frames' && state.media.kind !== 'video' && isAnimated();
-  const loopFps = framesWanted ? s.loopFps : 0;
+  // A Dither still that animates is always a loop, at the Loop fps; the other stills take the Loop fps only when rendered.
+  const ditherStill = params.algorithm === 'dither' && state.media.kind !== 'video' && isAnimated();
+  const loopFps = framesWanted || ditherStill ? s.loopFps : 0;
   const onProgress = (i, n) => setStatus('Rendering loop frame ' + i + ' of ' + n + '…', false);
   setStatus('Building ' + (kind === 'html' ? 'HTML' : 'JavaScript') + ' export…', false);
   try {

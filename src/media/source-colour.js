@@ -62,7 +62,11 @@ function* boxes(dv, start, end) {
 
 function findVideoTrack(dv, start, end) {
   for (const box of boxes(dv, start, end)) {
-    if (CONTAINERS.indexOf(box.type) >= 0) {
+    if (box.type === 'trak') {
+      // The track's rotation is in its tkhd box. It is attached to the video entry found in this track.
+      const found = findVideoTrack(dv, box.start, box.end);
+      if (found) return Object.assign(found, { rotation: trackRotation(dv, box.start, box.end) });
+    } else if (CONTAINERS.indexOf(box.type) >= 0) {
       const found = findVideoTrack(dv, box.start, box.end);
       if (found) return found;
     } else if (box.type === 'stsd') {
@@ -74,6 +78,24 @@ function findVideoTrack(dv, start, end) {
     }
   }
   return null;
+}
+
+// The rotation of a track, in degrees clockwise (0, 90, 180 or 270), from the matrix of its tkhd box. The matrix is
+// (a, b, u; c, d, v; x, y, w) in 16.16 fixed point, and a phone held upright is stored as a quarter turn. A track
+// without a tkhd, or with a matrix that is not a quarter turn, has rotation 0.
+export function trackRotation(dv, start, end) {
+  for (const box of boxes(dv, start, end)) {
+    if (box.type !== 'tkhd') continue;
+    const version = dv.getUint8(box.start);
+    // Version 1 has 64-bit times and duration, which moves the matrix 12 bytes further on.
+    const matrix = box.start + (version === 1 ? 52 : 40);
+    if (matrix + 8 > box.end) return 0;
+    const a = dv.getInt32(matrix) / 65536;
+    const b = dv.getInt32(matrix + 4) / 65536;
+    const angle = Math.round((Math.atan2(b, a) * 180) / Math.PI / 90) * 90;
+    return ((angle % 360) + 360) % 360;
+  }
+  return 0;
 }
 
 // A visual sample entry: 78 bytes of fields, then the child boxes (colr, hvcC, av1C, vpcC, avcC).

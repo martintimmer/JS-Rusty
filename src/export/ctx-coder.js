@@ -15,8 +15,18 @@ export class RangeEncoder {
     this.range = 0xFFFFFFFF;
     this.cache = 0;
     this.cacheSize = 1;
-    this.buf = new Uint8Array(capacity);
+    this.buf = new Uint8Array(Math.max(16, capacity));
     this.n = 0;
+  }
+  // Writes one byte. The coded size is not known in advance, so the buffer doubles when it is full. (A typed array
+  // ignores writes past its end, so without this a larger output would be silently cut short.)
+  put(byte) {
+    if (this.n >= this.buf.length) {
+      const grown = new Uint8Array(this.buf.length * 2);
+      grown.set(this.buf);
+      this.buf = grown;
+    }
+    this.buf[this.n++] = byte;
   }
   shiftLow() {
     const low32 = this.low % 0x100000000;
@@ -24,7 +34,7 @@ export class RangeEncoder {
     if (low32 < 0xFF000000 || carry) {
       let temp = this.cache;
       do {
-        this.buf[this.n++] = (temp + carry) & 0xFF;
+        this.put((temp + carry) & 0xFF);
         temp = 0xFF;
       } while (--this.cacheSize !== 0);
       this.cache = Math.floor(low32 / 0x1000000) & 0xFF;

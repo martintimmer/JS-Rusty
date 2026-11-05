@@ -23,11 +23,20 @@ export async function extractFrames(video, options) {
   const frames = new Array(count);
   const analysisFrames = new Array(count);
   const analysisColour = new Array(count);
+  let convertedCount = 0;
+  let stalled = 0;
 
   for (let k = 0; k < count; k++) {
     const t = start + Math.min(k / rate, Math.max(0, duration - 0.02));
-    await seekTo(video, t);
+    // A seek can land on the wrong frame. The frame is checked against the time asked for, and the seek is repeated once
+    // if it is more than half a frame out. A seek that still has not landed is counted, so the caller can report it.
+    let landed = await seekTo(video, t);
+    if (!landed || Math.abs(video.currentTime - t) > 0.5 / rate) {
+      landed = await seekTo(video, t);
+      if (!landed || Math.abs(video.currentTime - t) > 0.5 / rate) stalled++;
+    }
     const converted = source ? await source.draw(video, picture) : false;
+    if (converted) convertedCount++;
     const from = converted ? picture : video;
     drawView(full.ctx, from, view, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
@@ -36,6 +45,11 @@ export async function extractFrames(video, options) {
     analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
     analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
     if (onProgress) onProgress((k + 1) / count);
+  }
+
+  let path = null;
+  if (source) {
+    path = convertedCount === count ? 'converted' : (convertedCount === 0 ? 'browser' : 'mixed');
   }
 
   return {
@@ -47,6 +61,8 @@ export async function extractFrames(video, options) {
     count: count,
     fps: rate,
     duration: count / rate,
+    path: path,
+    stalled: stalled,
   };
 }
 
@@ -54,17 +70,26 @@ export async function extractFrames(video, options) {
 // recording has no index, and a seek may never land) is sampled by playing it once. The frames are the same either way.
 import { drawView } from './view.js';
 
+// The seek timeouts. A colour reader needs the seek path (the playback path cannot wait for a conversion), so a clip
+// with a reader is given longer to seek before the playback path is used.
+const SEEK_TIMEOUT_MS = 500;
+const SEEK_TIMEOUT_CONVERTED_MS = 5000;
+
 // options: fps, width, height (the output size), duration (the trimmed length), start (the trim's first frame, in
-// seconds of the clip), view (the crop and turn, see view.js), onProgress.
+// seconds of the clip), view (the crop and turn, see view.js), onProgress, source (an optional colour reader).
+// The result has path: 'converted' when every frame went through the colour reader, 'browser' when none did, and
+// 'mixed' when some did. It is null when no colour reader was offered.
 export async function extractVideoFrames(video, options) {
   const start = options.start || 0;
-  const seekable = await canSeek(video, start + options.duration / 2);
+  const timeout = options.source ? SEEK_TIMEOUT_CONVERTED_MS : SEEK_TIMEOUT_MS;
+  const seekable = await canSeek(video, start + options.duration / 2, timeout);
   if (seekable) return extractFrames(video, options);
-  return extractFramesByPlayback(video, options);
+  const result = await extractFramesByPlayback(video, options);
+  return Object.assign(result, { path: options.source ? 'browser' : null, stalled: 0 });
 }
 
-// True when a seek to the middle of the clip lands within 0.1 s, within half a second.
-function canSeek(video, targetTime) {
+// True when a seek to the middle of the clip lands within 0.1 s, within the timeout.
+function canSeek(video, targetTime, timeoutMs) {
   if (!video.seekable || video.seekable.length === 0) return Promise.resolve(false);
   const target = Math.max(0, targetTime);
   return new Promise((resolve) => {
@@ -77,7 +102,7 @@ function canSeek(video, targetTime) {
       resolve(ok);
     };
     const onSeeked = () => finish(Math.abs(video.currentTime - target) < 0.1);
-    const timer = setTimeout(() => finish(false), 500);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     video.addEventListener('seeked', onSeeked);
     video.currentTime = target;
   });
@@ -175,23 +200,24 @@ function makeContext(w, h) {
   return { canvas: canvas, ctx: ctx };
 }
 
+// Resolves to true when the seek finished, and false when it timed out (a stalled seek cannot hang the pipeline).
 function seekTo(video, t) {
   return new Promise((resolve) => {
     if (Math.abs(video.currentTime - t) < 0.0005 && video.readyState >= 2) {
-      resolve();
+      resolve(true);
       return;
     }
     let done = false;
-    const finish = () => {
+    const finish = (reached) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      video.removeEventListener('seeked', finish);
-      resolve();
+      video.removeEventListener('seeked', onSeeked);
+      resolve(reached);
     };
-    // Fallback so a stalled seek cannot hang the whole pipeline.
-    const timer = setTimeout(finish, 2000);
-    video.addEventListener('seeked', finish);
+    const onSeeked = () => finish(true);
+    const timer = setTimeout(() => finish(false), 2000);
+    video.addEventListener('seeked', onSeeked);
     video.currentTime = t;
   });
 }

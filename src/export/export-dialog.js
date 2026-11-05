@@ -5,7 +5,7 @@
 // computed by the same functions the exporters use, so they match what is written.
 
 import { outputSize, standaloneSize, gifTiming } from './image-exporter.js';
-import { loopFrameTiming } from './javascript-exporter.js';
+import { loopFrameTiming, packedLoopTiming, STANDALONE_DECODED_BYTES } from './javascript-exporter.js';
 import { blurRGBA } from './blur.js';
 
 const $ = (id) => document.getElementById(id);
@@ -47,12 +47,14 @@ const COLOUR_NOTES = {
   rec709: 'Rec. 709: the colours are encoded with the Rec. 709 curve, and the file says so.',
   p3: 'Display P3: the colours are converted to the P3 gamut, and the file carries the Display P3 profile.',
   gifRec709: 'Rec. 709 values in a GIF, which has no colour profile. Viewers show them as sRGB, so the difference is only the curve.',
+  // The preview is sRGB, so colour outside sRGB in a wide-gamut clip is already clipped when the frames are sampled.
+  p3Clipped: 'This clip has colour beyond sRGB, which the preview clips to sRGB, so the P3 file keeps only the colours sRGB shows.',
 };
 
 const NOTES = {
   png: 'Blur is applied to the saved file as well as to the preview.',
   jpg: 'Blur is applied to the saved file as well as to the preview.',
-  gif: '256-colour GIF. Blur is applied to every frame.',
+  gif: '256-colour GIF. Blur is applied to every frame. The frame rate you choose is kept as long as the frames fit the memory budget (about 500 frames at 960 × 540 px, fewer at larger sizes). A longer clip is sampled at a lower rate, so the whole clip is still covered.',
   webm: 'Recorded live from the canvas at its own size, in sRGB. Width and blur do not apply.',
   mp4: 'Recorded live from the canvas at its own size, as H.264 or HEVC in an MP4 file, in sRGB. Compression sets the bit rate. Width and blur do not apply.',
   html: 'A standalone page that embeds the renderer and the frames, in sRGB. Blur does not apply.',
@@ -61,6 +63,7 @@ const NOTES = {
 
 // Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
 const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and coded losslessly. Width and blur do not apply.';
+const PACKED_LOOP_NOTE = 'An animated still is exported as a loop of frames at the Loop fps, so the page moves.';
 // Added to the GIF note when a size limit is set. The export plans the frame rate and width to fit it.
 const GIF_LIMIT_NOTE = 'The frame rate and width are planned to fit the size limit, and the file is checked before it is saved. 1 MB is 1,000,000 bytes.';
 
@@ -252,21 +255,26 @@ function refresh() {
   // A rendered loop needs an animated still that is not packed Dither. The repeat choice also serves a video.
   const framesAvailable = !!src && src.animated && !src.isVideo && !packed;
   const framesOn = framesAvailable && settings.loopMode === 'frames' && (settings.format === 'html' || settings.format === 'js');
+  // A Dither still that animates is always a loop, at the Loop fps.
+  const packedLoop = packed && !src.isVideo && src.animated;
   for (const field of document.querySelectorAll('[data-export]')) {
     const group = field.dataset.export;
     let show = SHOWN[settings.format].indexOf(group) >= 0;
     if (group === 'standalone') show = show && !packed;
     if (group === 'loopRender') show = show && framesAvailable;
-    if (group === 'loopFps') show = show && framesOn;
-    // Repeat means something for a video, and for a rendered loop; a live still runs on by itself.
-    if (group === 'loopRepeat') show = show && !!src && (src.isVideo || framesOn);
+    if (group === 'loopFps') show = show && (framesOn || packedLoop);
+    // Repeat means something for a video, and for a loop; a live still runs on by itself.
+    if (group === 'loopRepeat') show = show && !!src && (src.isVideo || framesOn || packedLoop);
     field.hidden = !show;
   }
   syncColour();
   let note = packed ? PACKED_NOTE : NOTES[settings.format];
+  if (packedLoop) note += ' ' + PACKED_LOOP_NOTE;
   if (settings.format === 'gif' && settings.gifTargetMB > 0) note += ' ' + GIF_LIMIT_NOTE;
-  const colourNote = colourNoteFor(settings.format, colourFor(settings.format, settings.colour));
+  const chosenColour = colourFor(settings.format, settings.colour);
+  const colourNote = colourNoteFor(settings.format, chosenColour);
   if (colourNote) note += ' ' + colourNote;
+  if (chosenColour === 'p3' && src && src.wideGamut) note += ' ' + COLOUR_NOTES.p3Clipped;
   $('export-note').textContent = note;
   $('export-size').textContent = describe(src);
   $('export-run').disabled = !src || busy || !available(settings.format, src);
@@ -291,18 +299,27 @@ function describe(src) {
   const format = settings.format;
   if (format === 'png' || format === 'jpg') return size + ' · ' + FORMATS[format].label;
   if (format === 'gif') {
-    const t = gifTiming(src.data, settings.gifFps, src.animated, src.loopSeconds);
+    const t = gifTiming(src.data, settings.gifFps, src.animated, src.loopSeconds, dims);
     const frames = t.frameCount === 1 ? '1 frame' : t.frameCount + ' frames at ' + t.rate.toFixed(1) + ' fps';
     const limit = settings.gifTargetMB > 0 ? ' · up to ' + settings.gifTargetMB + ' MB' : '';
     return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still') + limit;
   }
   if (format === 'webm' || format === 'mp4') return size + ' · ' + FORMATS[format].label + ' · ' + src.recordSeconds.toFixed(1) + ' s recording';
+  if ((format === 'html' || format === 'js') && src.packed && src.animated && !src.isVideo) {
+    const t = packedLoopTiming(src.loopSeconds, settings.loopFps, src.data.width * src.data.height);
+    return size + ' · ' + t.count + ' loop frames at ' + t.rate.toFixed(1) + ' fps · ' + t.seconds.toFixed(1) + ' s loop';
+  }
   if ((format === 'html' || format === 'js') && settings.loopMode === 'frames' && src.animated && !src.isVideo && !src.packed) {
     const timing = loopFrameTiming(src.loopSeconds, settings.loopFps, dims.w * dims.h * 3);
     return size + ' · ' + timing.count + ' loop frames at ' + timing.rate.toFixed(1) + ' fps · ' +
       timing.seconds.toFixed(1) + ' s loop';
   }
-  return size + ' · standalone · ' + src.data.count + ' frames';
+  // The page decodes every frame into memory, so its size is shown with the frames, and a page that is too large to open
+  // is marked here (the export refuses it).
+  const bytes = src.data.count * dims.w * dims.h;
+  const memory = ' · about ' + Math.round(bytes / 1e6) + ' MB in the page' +
+    (bytes > STANDALONE_DECODED_BYTES ? ' (too large to open: export a smaller width or trim)' : '');
+  return size + ' · standalone · ' + src.data.count + ' frames' + memory;
 }
 
 // Draws the centre of the output at its real size: the crop is taken from the artwork canvas, scaled to

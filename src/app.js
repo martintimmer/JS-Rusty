@@ -876,8 +876,8 @@ function exportSource() {
 // Runs the export chosen in the export window with its settings.
 function runExportFromDialog(s) {
   switch (s.format) {
-    case 'html': return runExport('html', s.standaloneWidth);
-    case 'js': return runExport('js', s.standaloneWidth);
+    case 'html': return runExport('html', s);
+    case 'js': return runExport('js', s);
     case 'png': return exportImage('png', s);
     case 'jpg': return exportImage('jpg', s);
     case 'gif': return exportGifFile(s);
@@ -887,14 +887,21 @@ function runExportFromDialog(s) {
   }
 }
 
-async function runExport(kind, maxWidth) {
+// Standalone HTML or JS. Loop render: an animated still can be rendered into a loop of frames at the chosen frame
+// rate, instead of running live in the page. Video and the packed Dither export keep their own formats.
+async function runExport(kind, s) {
   if (!state.data) return;
   const params = state.artwork.params;
+  const framesWanted = s.loopMode === 'frames' && state.media.kind !== 'video' && isAnimated();
+  const loopFps = framesWanted ? s.loopFps : 0;
+  const onProgress = (i, n) => setStatus('Rendering loop frame ' + i + ' of ' + n + '…', false);
   setStatus('Building ' + (kind === 'html' ? 'HTML' : 'JavaScript') + ' export…', false);
   try {
     const bytes = kind === 'html'
-      ? await exportStandaloneHtml(state.data, params, 'js-rusty-art.html', maxWidth)
-      : await exportStandaloneJs(state.data, params, 'js-rusty-art.js', maxWidth);
+      ? await exportStandaloneHtml(state.data, params, 'js-rusty-art.html', s.standaloneWidth,
+        { loopFps: loopFps, repeat: s.loopRepeat, onProgress: onProgress })
+      : await exportStandaloneJs(state.data, params, 'js-rusty-art.js', s.standaloneWidth,
+        { loopFps: loopFps, onProgress: onProgress });
     setStatus('Exported (' + UI.formatBytes(bytes) + ').', false);
   } catch (err) {
     setStatus('Export failed: ' + err.message + ' (exports need the app served over http, see README).', true);

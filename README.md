@@ -364,8 +364,10 @@ table, built once per palette: for each of the 256 grey levels it stores the pai
 that best mixes to that grey. Each cell is then one lookup, and the output is always an exact palette colour. Palette
 order does not affect the result.
 
-The defaults (Atkinson, PICO-8 palette, every option at zero or off) reproduce the original renderer's output, and a
-check against it was run on several parameter sets.
+The original renderer's output is Atkinson with the PICO-8 palette and every option at zero or off. The defaults are now
+a template for the Dither look: Pulse animation on at 0.20× speed, Trail 44%, Depth 0.35, Halation 100% with spread 100%,
+Chromatic aberration 19%, serpentine scan on, grid 2 px, grain 8, gamma 1.05, diffusion 100%, edge preservation 0,
+adaptive threshold 50, detail 0, tone gain 65, edge halo 0, grayscale off, saturation 116%, brightness 0 and contrast 1.
 
 ### Optics: halation and chromatic aberration
 
@@ -469,8 +471,15 @@ Every export is made from the export window, opened by the Export button in the 
 
 | Format | Content | Notes |
 |---|---|---|
-| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices) |
+| Standalone HTML | Animated or still artwork that runs on its own | Width 1920, 960, 640 or 320 px (Dither: processed size, packed indices). Repeat (a rendered loop, or a video) plays again and again, or once. |
 | Standalone JS | `js-rusty-art.js`, for `<script src>` | Same data; `RasterArt.mount()` |
+
+**Loop render** (HTML and JS, animated stills other than Dither). *Live* embeds the engine and runs the animation in the
+page, as before. *Frames* renders one loop of the still at the chosen frame rate (8 to 24 fps) and embeds the frames.
+The page plays them back, so the loop closes exactly as the GIF does and needs no engine in the page. The frames are
+stored as RGB, each as the difference from the one before, then deflated. The number of frames is limited to about
+160 MB of raw frame data, so a long loop or a large width is sampled more slowly: the export window shows the frame
+count, the frame rate it gets, and the loop length. Video and Dither keep their own formats.
 | MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |

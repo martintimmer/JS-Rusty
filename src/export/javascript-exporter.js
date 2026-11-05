@@ -8,7 +8,7 @@
 // zeros for video), then the whole block is deflate-compressed and base64-encoded.
 // Motion vectors are stored as Int8 / Uint8 and base64-encoded.
 
-import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, GRID_CELL, resolvePalette } from '../rendering/core.js';
+import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, GRID_CELL, resolvePalette, stillLoopSeconds } from '../rendering/core.js';
 import { createArtwork } from '../rendering/artwork.js';
 import { dtResolveSettings } from '../rendering/dither/settings.js';
 import { dtPaletteTable } from '../engines/dither.js';
@@ -71,6 +71,123 @@ export function stripModuleSyntax(src) {
 
 // Resamples the processed frames to the export width and packs them (delta + deflate).
 // withColour: also pack the colour of the analysis grid (one still frame), for the algorithms that read it.
+// The analysis colour of a still, resampled to the grid of a targetW x targetH export (3 bytes per cell), or null when
+// the picture has no colour.
+function stillColourAt(data, targetW, targetH) {
+  const gw0 = Math.round(data.width / GRID_CELL);
+  const gh0 = Math.round(data.height / GRID_CELL);
+  if (!data.colour || !data.colour[0] || data.colour[0].length < 3 * gw0 * gh0) return null;
+  const src = data.colour[0];
+  const gwE = Math.ceil(targetW / GRID_CELL);
+  const ghE = Math.ceil(targetH / GRID_CELL);
+  const bytes = new Uint8Array(3 * gwE * ghE);
+  for (let gy = 0; gy < ghE; gy++) {
+    const sy = Math.min(gh0 - 1, Math.floor(((gy + 0.5) * gh0) / ghE));
+    for (let gx = 0; gx < gwE; gx++) {
+      const sx = Math.min(gw0 - 1, Math.floor(((gx + 0.5) * gw0) / gwE));
+      const s = 3 * (sy * gw0 + sx);
+      const o = 3 * (gy * gwE + gx);
+      bytes[o] = src[s];
+      bytes[o + 1] = src[s + 1];
+      bytes[o + 2] = src[s + 2];
+    }
+  }
+  return bytes;
+}
+
+// The grey frame of a still, resampled to a targetW x targetH export.
+function stillFrameAt(data, targetW, targetH) {
+  const src = data.frames[0];
+  const out = new Uint8Array(targetW * targetH);
+  for (let y = 0; y < targetH; y++) {
+    const sy = Math.min(data.height - 1, Math.floor((y * data.height) / targetH));
+    for (let x = 0; x < targetW; x++) {
+      const sx = Math.min(data.width - 1, Math.floor((x * data.width) / targetW));
+      out[y * targetW + x] = src[sy * data.width + sx];
+    }
+  }
+  return out;
+}
+
+// Loop render. The most raw frame data a rendered loop may hold (about 160 MB), and the most frames it may have.
+export const LOOP_FRAME_BYTES = 160 * 1024 * 1024;
+export const LOOP_FRAME_MAX = 150;
+
+// How a rendered loop is sampled: the frame count and rate that cover one loop of loopSeconds at the rate asked for,
+// within the memory budget. The loop always covers exactly loopSeconds, so its last frame leads into its first.
+export function loopFrameTiming(loopSeconds, fps, frameBytes) {
+  const wanted = Math.max(2, Math.round(loopSeconds * fps));
+  const fit = Math.max(2, Math.floor(LOOP_FRAME_BYTES / Math.max(1, frameBytes)));
+  const count = Math.min(LOOP_FRAME_MAX, fit, wanted);
+  return { count: count, rate: count / loopSeconds, seconds: loopSeconds };
+}
+
+// Renders one loop of an animated still into frames at the export size (the Loop render option). The frames are
+// rendered the way the GIF is: a closed loop, so the last frame leads into the first. Each frame is stored as RGB, as
+// the difference from the one before it, and the whole block is deflated.
+export async function encodeLoopFrames(data, params, maxWidth, fps, onProgress) {
+  const targetW = Math.max(16, Math.min(data.width, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
+  const targetH = Math.max(16, Math.round((data.height * (targetW / data.width)) / 2) * 2);
+  const frameBytes = targetW * targetH * 3;
+  const seconds = stillLoopSeconds(params.speed);
+  const timing = loopFrameTiming(seconds, fps, frameBytes);
+  const count = timing.count;
+  const dt = 1 / timing.rate;
+
+  const colourBytes = stillColourAt(data, targetW, targetH);
+  const small = {
+    width: targetW,
+    height: targetH,
+    fps: timing.rate,
+    duration: 0,
+    count: 1,
+    frames: [stillFrameAt(data, targetW, targetH)],
+    colour: colourBytes ? [colourBytes] : null,
+    motion: null,
+  };
+  const canvas = document.createElement('canvas');
+  const art = createArtwork(canvas, small);
+  art.setParams(params);
+  const ctx = canvas.getContext('2d');
+
+  const out = new Uint8Array(count * frameBytes);
+  const prev = new Uint8Array(frameBytes);
+  const cur = new Uint8Array(frameBytes);
+  for (let i = 0; i < count; i++) {
+    art.render(i * dt, i === 0 ? 0 : dt, { reset: i === 0, loop: seconds });
+    const px = ctx.getImageData(0, 0, targetW, targetH).data;
+    for (let k = 0, j = 0; k < px.length; k += 4, j += 3) {
+      cur[j] = px[k];
+      cur[j + 1] = px[k + 1];
+      cur[j + 2] = px[k + 2];
+    }
+    const base = i * frameBytes;
+    if (i === 0) {
+      out.set(cur, 0);
+    } else {
+      for (let j = 0; j < frameBytes; j++) out[base + j] = (cur[j] - prev[j]) & 255;
+    }
+    prev.set(cur);
+    if (onProgress) onProgress(i + 1, count);
+    // Yield to the UI now and then, so the page stays responsive during a long render.
+    if (i % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  const compressed = await deflate(out);
+  return {
+    mode: 'frames',
+    width: targetW,
+    height: targetH,
+    fps: timing.rate,
+    duration: timing.seconds,
+    count: count,
+    frameBytes: frameBytes,
+    frames: bytesToBase64(compressed),
+    motion: null,
+    colour: null,
+  };
+}
+
 export async function encodeData(data, maxWidth, withColour) {
   const targetW = Math.max(16, Math.min(data.width, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
   const scale = targetW / data.width;
@@ -122,27 +239,10 @@ export async function encodeData(data, maxWidth, withColour) {
     };
   }
 
-  // Colour: the analysis colour of the still, resampled to the export's grid (3 bytes per cell).
   let colour = null;
-  const gw0 = Math.round(data.width / GRID_CELL);
-  const gh0 = Math.round(data.height / GRID_CELL);
-  if (withColour && data.colour && data.colour[0] && data.colour[0].length >= 3 * gw0 * gh0) {
-    const src = data.colour[0];
-    const gwE = Math.ceil(targetW / GRID_CELL);
-    const ghE = Math.ceil(targetH / GRID_CELL);
-    const bytes = new Uint8Array(3 * gwE * ghE);
-    for (let gy = 0; gy < ghE; gy++) {
-      const sy = Math.min(gh0 - 1, Math.floor(((gy + 0.5) * gh0) / ghE));
-      for (let gx = 0; gx < gwE; gx++) {
-        const sx = Math.min(gw0 - 1, Math.floor(((gx + 0.5) * gw0) / gwE));
-        const s = 3 * (sy * gw0 + sx);
-        const o = 3 * (gy * gwE + gx);
-        bytes[o] = src[s];
-        bytes[o + 1] = src[s + 1];
-        bytes[o + 2] = src[s + 2];
-      }
-    }
-    colour = bytesToBase64(await deflate(bytes));
+  if (withColour) {
+    const bytes = stillColourAt(data, targetW, targetH);
+    if (bytes) colour = bytesToBase64(await deflate(bytes));
   }
 
   const compressed = await deflate(packed);
@@ -303,7 +403,8 @@ const DECODER_SOURCE = `
       var colourP = d.colour ? inflateBytes(b64ToBytes(d.colour)) : Promise.resolve(null);
       return colourP.then(function (colourBytes) {
         return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
-                 count: d.count, frames: frames, motion: motion, colour: colourBytes ? [colourBytes] : null };
+                 count: d.count, frames: frames, motion: motion, colour: colourBytes ? [colourBytes] : null,
+                 frameMode: d.mode === 'frames' };
       });
     });
   }
@@ -356,6 +457,38 @@ const MOUNT_SOURCE = `
       }
     };
   }
+  // Plays a rendered loop: each frame is RGB, shown at its time. The loop wraps at the end of its last frame.
+  function createFrameArtwork(canvas, data) {
+    canvas.width = data.width;
+    canvas.height = data.height;
+    var ctx = canvas.getContext('2d');
+    var img = ctx.createImageData(data.width, data.height);
+    var pixels = img.data;
+    var n = data.width * data.height;
+    var shown = -1;
+    return {
+      canvas: canvas,
+      params: { animation: 'off' },
+      setParams: function () {},
+      render: function (t) {
+        var f = Math.floor(Math.max(0, t) * data.fps + 1e-6);
+        if (f > data.count - 1) f = data.count - 1;
+        if (f === shown) return { ms: 0, elements: 0 };
+        shown = f;
+        var src = data.frames[f];
+        for (var i = 0; i < n; i++) {
+          var j = i * 4;
+          var s = i * 3;
+          pixels[j] = src[s];
+          pixels[j + 1] = src[s + 1];
+          pixels[j + 2] = src[s + 2];
+          pixels[j + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        return { ms: 0, elements: n };
+      }
+    };
+  }
   function mount(target, options) {
     var opts = options || {};
     var canvas = target;
@@ -392,7 +525,8 @@ const MOUNT_SOURCE = `
     canvas.addEventListener('click', function () { api.toggle(); });
     loadArtwork().then(function (data) {
       duration = data.duration > 0 ? data.duration : 0;
-      art = data.packed ? createPackedArtwork(canvas, data) : createArtwork(canvas, data);
+      art = data.packed ? createPackedArtwork(canvas, data)
+        : (data.frameMode ? createFrameArtwork(canvas, data) : createArtwork(canvas, data));
       art.setParams(pendingParams);
       dirty = true;
       reset = true;
@@ -424,9 +558,14 @@ export async function createStandaloneScript(data, params, options) {
   // Dither artwork is packed as palette indices. Every other algorithm ships its frames and renders them at run time.
   // The Low poly Mosaic reads colour, so a still of that algorithm carries its colour frame.
   const withColour = p.algorithm === 'lowpoly' && data.count === 1 && !!data.colour;
-  const payload = p.algorithm === 'dither'
-    ? await encodePacked(data, p)
-    : await encodeData(data, opts.maxWidth, withColour);
+  // Loop render: an animated still can be rendered into a loop of frames (loopFps), played back by the page instead of
+  // running the engine live. Video and Dither keep their own formats.
+  const framesWanted = !!opts.loopFps && data.count === 1 && !data.duration && p.algorithm !== 'dither' &&
+    p.animation !== 'off';
+  let payload;
+  if (p.algorithm === 'dither') payload = await encodePacked(data, p);
+  else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
+  else payload = await encodeData(data, opts.maxWidth, withColour);
   // Packed Dither artwork is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 
@@ -456,8 +595,12 @@ export function downloadBlob(filename, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export async function exportStandaloneJs(data, params, filename, maxWidth) {
-  const source = await createStandaloneScript(data, params, { title: filename, maxWidth: maxWidth });
+// options: loopFps (0 = live; otherwise the frame rate of a rendered loop), onProgress(i, n) for the loop render.
+export async function exportStandaloneJs(data, params, filename, maxWidth, options) {
+  const extra = options || {};
+  const source = await createStandaloneScript(data, params, {
+    title: filename, maxWidth: maxWidth, loopFps: extra.loopFps, onProgress: extra.onProgress,
+  });
   downloadBlob(filename, new Blob([source], { type: 'text/javascript' }));
   return source.length;
 }

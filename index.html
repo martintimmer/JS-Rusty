@@ -668,6 +668,29 @@
                 <option value="15">15 fps</option>
               </select>
             </label>
+            <label class="field" data-export="loopRender">
+              <span><span class="lbl">Loop render</span></span>
+              <select id="export-loop-mode">
+                <option value="live" selected>Live (the page runs it)</option>
+                <option value="frames">Frames (a rendered loop)</option>
+              </select>
+            </label>
+            <label class="field" data-export="loopFps">
+              <span><span class="lbl">Loop frame rate</span></span>
+              <select id="export-loop-fps">
+                <option value="8">8 fps</option>
+                <option value="12" selected>12 fps</option>
+                <option value="15">15 fps</option>
+                <option value="24">24 fps</option>
+              </select>
+            </label>
+            <label class="field" data-export="loopRepeat">
+              <span><span class="lbl">Repeat</span></span>
+              <select id="export-loop-repeat">
+                <option value="yes" selected>Repeat forever</option>
+                <option value="no">Play once</option>
+              </select>
+            </label>
             <label class="field" data-export="blur">
               <span><span class="lbl">Output blur</span> <em id="export-blur-val">Off</em></span>
               <input type="range" id="export-blur" min="0" max="8" step="1" value="0" />

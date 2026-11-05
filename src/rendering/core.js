@@ -7,23 +7,23 @@ import { dtResolveColourSet, dtPaletteInk } from './dither/palettes.js';
 
 export const DEFAULT_PARAMS = {
   algorithm: 'dither',
-  animation: 'off',
-  detail: 70,
-  density: 75,
+  animation: 'pulse',
+  detail: 0,
+  density: 65,
   contrast: 1,
   brightness: 0,
-  edge: 0.5,
+  edge: 0,
   pattern: 'horizontal',
   particles: 40000,
   animCount: 100,            // Snakes: share of the strokes that carry a snake, in percent
-  speed: 0,                  // Animation speed on a log scale, -100 (ten times slower) to +100 (ten times faster)
+  speed: -70,                // Animation speed on a log scale, -100 (ten times slower) to +100 (ten times faster): 0.20x
   motion: 1,
-  trail: 0,                  // Trail: how much of the picture a moment ago stays in the tone, 0-100 (stills only)
-  halation: 0,               // Halation: light from the bright parts spreads into the dark, 0-100 (0 = off)
-  halationSize: 50,          // Halation spread, 0-100
-  aberration: 0,             // Chromatic aberration: red and blue part from green toward the edges, 0-100 (0 = off)
+  trail: 44,                 // Trail: how much of the picture a moment ago stays in the tone, 0-100 (stills only)
+  halation: 100,             // Halation: light from the bright parts spreads into the dark, 0-100 (0 = off)
+  halationSize: 100,         // Halation spread, 0-100
+  aberration: 19,            // Chromatic aberration: red and blue part from green toward the edges, 0-100 (0 = off)
   direction: 0,
-  velocity: 1,
+  velocity: 0.35,            // Pulse depth (Depth), 0-3
   thickness: 1,
   cdLevels: 12,
   cdSmooth: 40,
@@ -45,21 +45,23 @@ export const DEFAULT_PARAMS = {
   background: 'paper',
   // Colour for the Dither engine (with a palette). Grayscale on keeps the original tone-mapped look.
   dtSeed: 1,                 // random threshold pattern, 1-99: the same seed always gives the same scatter
-  saturation: 100,           // colour strength, 0-200 (100 = as photographed)
+  saturation: 116,           // colour strength, 0-200 (100 = as photographed)
   // Grayscale on: palettes follow the photo's tone. Off: palette colours follow its colour. It is off by default, with
   // PICO-8 (an 8 bit palette), and choosing an 8 bit palette turns it off (app.js onPaletteChange).
   grayscale: false,
-  // Dither engine (src/rendering/dither). These defaults reproduce the original Atkinson, two-tone output.
+  // Dither engine (src/rendering/dither). The defaults are the template: Atkinson, serpentine scan, adaptive threshold,
+  // gamma and grain. The original two-tone Atkinson output is these values with serpentine off, adaptive 0, gamma 1
+  // and grain 0.
   dtMethod: 'atkinson',      // atkinson | floyd-steinberg | jjn | bayer | bayer4 | random | blue-noise | none
   dtLevels: 2,               // tonal levels of the paper-and-ink ramp: 2, 3, 4, 8 or 16
   dtPalette: 'pico-8',    // paper-ink (uses palette and background), a named colour set, or custom (dtColours)
   dtColours: '',             // custom colour list: 2 to 16 hex colours
-  dtSerpentine: false,       // alternate the scan direction on each row (error diffusion only)
+  dtSerpentine: true,        // alternate the scan direction on each row (error diffusion only)
   dtThreshold: 50,           // global threshold, 0-100 (50 = midpoint)
-  dtAdaptive: 0,             // adaptive threshold strength, 0-100 (0 = global threshold only)
+  dtAdaptive: 50,            // adaptive threshold strength, 0-100 (0 = global threshold only)
   dtEdge: 0,                 // edge preservation, 0-100: damps diffusion across strong edges (error diffusion only)
-  dtGamma: 1,                // midtone gamma of the tone (1 = unchanged)
-  dtNoise: 0,                // grain added to the tone, 0-100; re-rolled on every rendered frame
+  dtGamma: 1.05,             // midtone gamma of the tone (1 = unchanged)
+  dtNoise: 8,                // grain added to the tone, 0-100; re-rolled on every rendered frame
   dtInvert: false,           // swap light and dark before dithering
   dtGrid: 2,                 // dither cell size in canvas pixels, 1-16 (2 = one analysis cell)
   dtDiffusion: 100,          // diffusion strength, 0-100 (100 = full kernel; error diffusion only)

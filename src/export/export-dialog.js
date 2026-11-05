@@ -5,6 +5,7 @@
 // computed by the same functions the exporters use, so they match what is written.
 
 import { outputSize, standaloneSize, gifTiming } from './image-exporter.js';
+import { loopFrameTiming } from './javascript-exporter.js';
 import { blurRGBA } from './blur.js';
 
 const $ = (id) => document.getElementById(id);
@@ -31,8 +32,8 @@ const SHOWN = {
   gif: ['raster', 'gif', 'blur'],
   webm: [],
   mp4: ['mp4'],
-  html: ['standalone'],
-  js: ['standalone'],
+  html: ['standalone', 'loopRender', 'loopFps', 'loopRepeat'],
+  js: ['standalone', 'loopRender', 'loopFps'],
 };
 
 const NOTES = {
@@ -48,7 +49,12 @@ const NOTES = {
 // Dither artwork is exported as packed palette indices at the processed size, so the width does not apply.
 const PACKED_NOTE = 'Dither artwork is packed as palette indices at the processed size and compressed with zlib. Width and blur do not apply.';
 
-const settings = { format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0, mp4Codec: 'h264', mp4Level: 'medium' };
+// loopMode: 'live' (the page runs the animation) or 'frames' (the page plays a rendered loop); loopFps is that loop's
+// frame rate, and loopRepeat says whether the page repeats it.
+const settings = {
+  format: 'png', width: 1920, standaloneWidth: 960, quality: 92, gifFps: 12, blur: 0, mp4Codec: 'h264', mp4Level: 'medium',
+  loopMode: 'live', loopFps: 12, loopRepeat: true,
+};
 let options = null;
 let open = false;
 
@@ -71,6 +77,9 @@ export function initExportDialog(opts) {
   $('export-standalone-width').addEventListener('change', onInput);
   $('export-quality').addEventListener('input', onInput);
   $('export-gif-fps').addEventListener('change', onInput);
+  $('export-loop-mode').addEventListener('change', onInput);
+  $('export-loop-fps').addEventListener('change', onInput);
+  $('export-loop-repeat').addEventListener('change', onInput);
   $('export-blur').addEventListener('input', onInput);
   $('export-mp4-codec').addEventListener('change', onInput);
   $('export-mp4-level').addEventListener('change', onInput);
@@ -141,6 +150,9 @@ function readControls() {
   settings.standaloneWidth = Number($('export-standalone-width').value);
   settings.quality = Number($('export-quality').value);
   settings.gifFps = Number($('export-gif-fps').value);
+  settings.loopMode = $('export-loop-mode').value;
+  settings.loopFps = Number($('export-loop-fps').value);
+  settings.loopRepeat = $('export-loop-repeat').value === 'yes';
   settings.blur = Number($('export-blur').value);
   settings.mp4Codec = $('export-mp4-codec').value;
   settings.mp4Level = $('export-mp4-level').value;
@@ -159,6 +171,9 @@ function runExport() {
     standaloneWidth: settings.standaloneWidth,
     quality: settings.quality / 100,
     gifFps: settings.gifFps,
+    loopMode: settings.loopMode,
+    loopFps: settings.loopFps,
+    loopRepeat: settings.loopRepeat,
     blur: FORMATS[format].blur ? settings.blur : 0,
     mp4Codec: settings.mp4Codec,
     mp4Level: settings.mp4Level,
@@ -192,8 +207,18 @@ function refresh() {
     button.disabled = !available(format, src) || busy;
   }
   const packed = !!src && !!src.packed && (settings.format === 'html' || settings.format === 'js');
+  // A rendered loop needs an animated still that is not packed Dither. The repeat choice also serves a video.
+  const framesAvailable = !!src && src.animated && !src.isVideo && !packed;
+  const framesOn = framesAvailable && settings.loopMode === 'frames' && (settings.format === 'html' || settings.format === 'js');
   for (const field of document.querySelectorAll('[data-export]')) {
-    field.hidden = SHOWN[settings.format].indexOf(field.dataset.export) < 0 || (packed && field.dataset.export === 'standalone');
+    const group = field.dataset.export;
+    let show = SHOWN[settings.format].indexOf(group) >= 0;
+    if (group === 'standalone') show = show && !packed;
+    if (group === 'loopRender') show = show && framesAvailable;
+    if (group === 'loopFps') show = show && framesOn;
+    // Repeat means something for a video, and for a rendered loop; a live still runs on by itself.
+    if (group === 'loopRepeat') show = show && !!src && (src.isVideo || framesOn);
+    field.hidden = !show;
   }
   $('export-note').textContent = packed ? PACKED_NOTE : NOTES[settings.format];
   $('export-size').textContent = describe(src);
@@ -224,6 +249,11 @@ function describe(src) {
     return size + ' · ' + frames + ' · ' + (src.animated ? t.duration.toFixed(1) + ' s loop' : 'still');
   }
   if (format === 'webm' || format === 'mp4') return size + ' · ' + FORMATS[format].label + ' · ' + src.recordSeconds.toFixed(1) + ' s recording';
+  if ((format === 'html' || format === 'js') && settings.loopMode === 'frames' && src.animated && !src.isVideo && !src.packed) {
+    const timing = loopFrameTiming(src.loopSeconds, settings.loopFps, dims.w * dims.h * 3);
+    return size + ' · ' + timing.count + ' loop frames at ' + timing.rate.toFixed(1) + ' fps · ' +
+      timing.seconds.toFixed(1) + ' s loop';
+  }
   return size + ' · standalone · ' + src.data.count + ' frames';
 }
 

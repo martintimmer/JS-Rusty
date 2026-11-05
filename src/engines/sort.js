@@ -1,4 +1,5 @@
 import { clamp, lerp, CELL_PX } from '../rendering/core.js';
+import { mfActive, MOTION_BASE } from '../rendering/motion-field.js';
 
 // Pixel sorting (glitch art, after Kim Asendorf's popularisation of the technique).
 // Within each row (or column), runs of pixels whose luminance falls in a band are sorted
@@ -23,8 +24,15 @@ export function renderSort(rc) {
   const dst = state.sorted;
   dst.set(src);
 
-  const lo = lerp(20, 120, clamp(p.detail, 0, 100) / 100);
-  const hi = lerp(140, 250, clamp(p.density, 0, 100) / 100);
+  let lo = lerp(20, 120, clamp(p.detail, 0, 100) / 100);
+  let hi = lerp(140, 250, clamp(p.density, 0, 100) / 100);
+  if (mfActive(rc, 'pulse')) {
+    // Pulse: the luminance band slides up and down, so the runs that get sorted move through the picture. Both edges
+    // move together, so the band keeps its width.
+    const shift = 40 * rc.motion.amount * Math.sin(2 * Math.PI * rc.motion.freq(MOTION_BASE.pulse) * rc.motion.time);
+    lo = clamp(lo + shift, 0, 255);
+    hi = clamp(hi + shift, 0, 255);
+  }
   const dir = ((p.direction % 180) + 180) % 180;
   const vertical = dir > 45 && dir < 135;
   const lines = vertical ? gw : gh;

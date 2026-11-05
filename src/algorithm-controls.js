@@ -5,6 +5,7 @@
 // for horizontal engraving). This module has no DOM access, so it can be tested directly.
 
 const VIDEO = (x) => x.mediaKind === 'video';
+const STILL = (x) => x.mediaKind !== 'video';
 const HORIZONTAL = (x) => x.pattern === 'horizontal';
 // Error-diffusion methods only (ordered methods have no error to diffuse).
 const DIFFUSION = (x) => ['atkinson', 'floyd-steinberg', 'jjn'].indexOf(x.dtMethod) >= 0;
@@ -131,36 +132,41 @@ const SPEC = {
   },
 };
 
-// Motion types. Each one is laid over the selected algorithm, so the algorithm's own controls stay
-// visible. Where a key is in both, the motion's label and hint are shown while that motion is on.
+// Motion types. Each one changes the algorithm's inputs over time, and the algorithm draws each frame again, so
+// the algorithm's own controls stay visible. Where a key is in both, the motion's label and hint are shown while
+// that motion is on.
+const TRAIL_HINT = 'Leaves the picture of a moment ago in the tone, so the marks trail behind (stills only).';
 const MOTION_SPEC = {
   snake: {
-    speed: ctl('Snake speed', 'How fast the snakes crawl along the lines (0 = frozen).'),
-    animCount: ctl('Snakes', 'Number of snakes.'),
-    thickness: ctl('Snake width', 'Width of each snake.'),
-    motion: ctl('Motion influence', 'How strongly video motion swells the snake heads.', VIDEO),
+    speed: ctl('Snake speed', 'How fast the beads run along the strokes (0 = frozen).'),
+    animCount: ctl('Snakes', 'Share of the strokes that carry a snake.'),
+    thickness: ctl('Snake width', 'How much thicker a bead is than the stroke it runs along.'),
+    motion: ctl('Motion influence', 'On video, how much the bead swells where the picture moves.', VIDEO),
   },
   pulse: {
-    speed: ctl('Pulse rate', 'How fast the rings travel and the picture breathes (0 = frozen).'),
-    velocity: ctl('Pulse depth', 'How deep the rings and the breathing go.'),
+    speed: ctl('Pulse rate', 'How fast the contours breathe and the rings travel (0 = frozen).'),
+    velocity: ctl('Pulse depth', 'How far the contours and the rings move.'),
     motion: ctl('Motion influence', 'How strongly video motion adds to the displacement.', VIDEO),
+    trail: ctl('Trail', TRAIL_HINT, STILL),
   },
   hover: {
-    speed: ctl('Hover speed', 'How fast the regions float (0 = frozen).'),
-    velocity: ctl('Hover amount', 'How far the regions float.'),
+    speed: ctl('Hover speed', 'How fast the marks float (0 = frozen).'),
+    velocity: ctl('Hover amount', 'How far the marks float.'),
     motion: ctl('Motion influence', 'How strongly video motion pushes the regions.', VIDEO),
+    trail: ctl('Trail', TRAIL_HINT, STILL),
   },
   ripple: {
     speed: ctl('Wave speed', 'How fast the wave travels (0 = frozen).'),
     velocity: ctl('Wave height', 'How high the wave lifts the picture.'),
-    direction: ctl('Wave direction', 'Direction the wave travels in.'),
+    direction: ctl('Wave direction', 'Direction the wave drifts in. Fronts still leave the outline.'),
     motion: ctl('Motion influence', 'How strongly video motion adds to the displacement.', VIDEO),
+    trail: ctl('Trail', TRAIL_HINT, STILL),
   },
 };
 
 // Every control that can appear in the right-hand sidebar.
 export const RENDER_CONTROL_KEYS = [
-  'detail', 'density', 'edge', 'pattern', 'particles', 'animCount', 'motion',
+  'detail', 'density', 'edge', 'pattern', 'particles', 'animCount', 'motion', 'trail',
   'speed', 'direction', 'velocity', 'thickness', 'contrast', 'brightness',
   'palette', 'background',
   'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen',

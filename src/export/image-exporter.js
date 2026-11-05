@@ -4,13 +4,12 @@
 // export window) is applied to the exported pixels, so the saved file matches the preview.
 
 import { createArtwork } from '../rendering/artwork.js';
-import { resolvePalette, clamp, CANVAS_SCALE } from '../rendering/core.js';
+import { resolvePalette, clamp, CANVAS_SCALE, STILL_LOOP_SECONDS } from '../rendering/core.js';
 import { dtResolveColourSet } from '../rendering/dither/palettes.js';
 import { encodeGif } from './gif-encoder.js';
 import { blurRGBA } from './blur.js';
 
 export const GIF_MAX_FRAMES = 150;
-export const STILL_STATIC_SECONDS = 6; // animation length for an animated still image
 
 function defaultCanvas() {
   return document.createElement('canvas');
@@ -34,8 +33,9 @@ export function standaloneSize(data, maxWidth) {
 
 // Frame count, frame rate and length of a GIF of the sequence. exportGif and the export window both use it,
 // so the window reports exactly what will be written.
-export function gifTiming(data, fps, animated) {
-  const duration = data.duration > 0 ? data.duration : (animated ? STILL_STATIC_SECONDS : 0);
+// loopSeconds: the length of a still's loop (see stillLoopSeconds in core.js). Video uses its clip length.
+export function gifTiming(data, fps, animated, loopSeconds) {
+  const duration = data.duration > 0 ? data.duration : (animated ? (loopSeconds || STILL_LOOP_SECONDS) : 0);
   const wanted = animated ? Math.round(duration * fps) : 1;
   const frameCount = animated ? Math.max(1, Math.min(GIF_MAX_FRAMES, wanted)) : 1;
   // A clip longer than GIF_MAX_FRAMES at the chosen rate is sampled at a lower rate, so the GIF covers all of it.
@@ -157,6 +157,7 @@ function paletteSetIndices(rgba, set) {
 //   width           output width (height keeps the aspect ratio)
 //   fps             frames per second in the GIF
 //   animated        false = one frame; true = render the sequence (video or an animation type)
+//   loopSeconds     length of a still's loop, which follows Speed (video uses its clip length)
 //   blur            optional blur radius in output pixels, applied to every frame
 //   onProgress(i, n) called after each frame
 // Resolves to { blob, frames, width, height }.
@@ -170,9 +171,12 @@ export async function exportGif(opts) {
   const set = params.algorithm === 'dither' ? dtResolveColourSet(params.dtPalette, params.dtColours) : null;
   const palette = set ? setGifPalette(set) : gifPalette(pal.bg, pal.stroke);
 
-  const timing = gifTiming(data, fps, animated);
+  const timing = gifTiming(data, fps, animated, opts.loopSeconds);
   const frameCount = timing.frameCount;
   const dt = 1 / timing.rate;
+  // The GIF covers exactly frameCount frames, so its loop is that long. Motion closes over this length, and the last
+  // frame leads straight into the first.
+  const loop = animated ? frameCount * dt : 0;
 
   const live = makeCanvas();
   const art = createArtwork(live, data);
@@ -188,7 +192,7 @@ export async function exportGif(opts) {
   for (let i = 0; i < frameCount; i++) {
     // Video frames follow the source clock; animated stills step their clock by dt.
     const t = animated ? i * dt : 0;
-    art.render(t, i === 0 ? 0 : (animated ? dt : 0), { reset: i === 0 });
+    art.render(t, i === 0 ? 0 : (animated ? dt : 0), { reset: i === 0, loop: loop });
     sctx.clearRect(0, 0, size.w, size.h);
     sctx.drawImage(live, 0, 0, size.w, size.h);
     const img = sctx.getImageData(0, 0, size.w, size.h);

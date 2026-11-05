@@ -17,6 +17,7 @@ import { dtPaletteTable } from '../engines/dither.js';
 const RUNTIME_MODULES = [
   '../rendering/core.js',
   '../rendering/flow.js',
+  '../rendering/motion-field.js',
   '../engines/engraving.js',
   '../engines/stippling.js',
   '../engines/contour.js',
@@ -45,7 +46,6 @@ const RUNTIME_MODULES = [
   '../engines/linocut.js',
   '../engines/ascii.js',
   '../engines/sort.js',
-  '../rendering/animation-layer.js',
   '../rendering/artwork.js',
 ];
 
@@ -148,7 +148,8 @@ async function encodePacked(data, params) {
   const opt = dtResolveSettings(p);
   const bits = packedBitsFor(opt.levels);
   const art = createArtwork(document.createElement('canvas'), data);
-  art.setParams(p);
+  // The packed frames are the picture as drawn, without motion: the standalone player only paints them.
+  art.setParams(Object.assign({}, p, { animation: 'off' }));
   const frames = [];
   let gw = 0;
   let gh = 0;
@@ -354,7 +355,7 @@ const MOUNT_SOURCE = `
         }
       }
       if (continuous || dirty) {
-        art.render(time, continuous ? dt : 0, { reset: reset });
+        art.render(time, continuous ? dt : 0, { reset: reset, loop: duration });
         dirty = false;
         reset = false;
       }
@@ -393,6 +394,7 @@ export async function createStandaloneScript(data, params, options) {
   const p = normalizeParams(params || DEFAULT_PARAMS);
   // Dither artwork is packed as palette indices. Every other algorithm ships its frames and renders them at run time.
   const payload = p.algorithm === 'dither' ? await encodePacked(data, p) : await encodeData(data, opts.maxWidth);
+  // Packed Dither artwork is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 
   return [

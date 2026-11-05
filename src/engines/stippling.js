@@ -3,6 +3,7 @@ import {
   clamp, lerp, buildCdf, cdfLookup, sampleMotion,
   CANVAS_SCALE, CELL_PX, MAX_ELEMENTS,
 } from '../rendering/core.js';
+import { mfActive, mfHash, MOTION_BASE } from '../rendering/motion-field.js';
 
 // Stippling engine with tone-sized dots.
 // Each dot has a fixed low-discrepancy rank u. Its position is the grid cell where the
@@ -32,6 +33,16 @@ export function renderStippling(rc) {
   const useMotion = p.motion > 0 && data.motion && data.count > 1;
   const off = state.off;
 
+  // Hover (a still, or a video without motion vectors): every dot floats on a small circle about its place, on its own
+  // phase, so the dot cloud drifts without any dot leaving its region.
+  const hover = !useMotion && mfActive(rc, 'hover');
+  const hoverPhase = hover ? rc.motion.freq(MOTION_BASE.hover) * rc.motion.time : 0;
+  const hoverAmp = hover ? 2.5 * scale * rc.motion.amount : 0;
+  // The push from motion vectors decays by time, not by frame, so the look does not depend on the frame rate. At 60
+  // frames per second this is the old 0.9 decay and push.
+  const keep = Math.pow(0.9, Math.max(0, rc.dt || 0) * 60);
+  const gain = (1 - keep) / 0.1;
+
   ctx.fillStyle = pal.bgCss;
   ctx.fillRect(0, 0, W, H);
 
@@ -55,14 +66,19 @@ export function renderStippling(rc) {
     if (useMotion) {
       sampleMotion(data, k, x / CANVAS_SCALE, y / CANVAS_SCALE, mv);
       // Decay the previous displacement and add the current motion push.
-      off[oi] = off[oi] * 0.9 + mv[0] * CANVAS_SCALE * p.motion * 0.6;
-      off[oi + 1] = off[oi + 1] * 0.9 + mv[1] * CANVAS_SCALE * p.motion * 0.6;
+      off[oi] = off[oi] * keep + mv[0] * CANVAS_SCALE * p.motion * 0.6 * gain;
+      off[oi + 1] = off[oi + 1] * keep + mv[1] * CANVAS_SCALE * p.motion * 0.6 * gain;
     } else {
-      off[oi] *= 0.9;
-      off[oi + 1] *= 0.9;
+      off[oi] *= keep;
+      off[oi + 1] *= keep;
     }
     x += off[oi];
     y += off[oi + 1];
+    if (hover) {
+      const a = 2 * Math.PI * (hoverPhase + mfHash(i * 0.77 + 0.2));
+      x += hoverAmp * Math.cos(a);
+      y += hoverAmp * Math.sin(a);
+    }
 
     path.moveTo(x + radius, y);
     path.arc(x, y, radius, 0, Math.PI * 2);

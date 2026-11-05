@@ -1,6 +1,6 @@
 import {
   CANVAS_SCALE, GRID_CELL, normalizeParams, buildLut, resolvePalette,
-  frameAt, buildGrid, buildColourGrid,
+  frameAt, buildGrid, buildColourGrid, clamp,
 } from './core.js';
 import { renderEngraving } from '../engines/engraving.js';
 import { renderStippling } from '../engines/stippling.js';
@@ -15,18 +15,23 @@ import { renderOil } from '../engines/oil.js';
 import { renderLinocut } from '../engines/linocut.js';
 import { renderAscii } from '../engines/ascii.js';
 import { renderSort } from '../engines/sort.js';
-import { applyMotionLayer, MOTION_TYPES } from './animation-layer.js';
+import {
+  MOTION_TYPES, MOTION_ECHO_LAG, createMotionState, motionTime, motionFrequency, mfIsNative, mfWarpGrid, mfCentre,
+  mfEcho,
+} from './motion-field.js';
 
-// Artwork renderer: owns the canvas, the analysis grid and per-engine state.
+// Artwork renderer: owns the canvas, the analysis grids and per-engine state.
 // data = {
 //   width, height   source-frame size in px (canvas is CANVAS_SCALE x this)
 //   fps, duration   sampling rate and length in seconds
 //   count           number of frames
 //   frames          Array<Uint8Array> grayscale frames (width*height)
+//   colour          optional colour frames (for the Dither engine's colour mode)
 //   motion          null | { bs, bw, bh, vx: Int8Array, vy: Int8Array, diff: Uint8Array }
 // }
-// Every frame is drawn by the selected algorithm. An animation type (see MOTION_TYPES) is then
-// laid over that output by the motion layer, so the algorithm keeps its look while it moves.
+// Two grids. The base grid is the picture's tone as the engines read it. A still has one frame, so its base grid
+// is built once for each setting that changes it. An animation type never writes into the base grid: it moves a copy
+// (see motion-field.js), and the engine reads that copy. The engine then draws the frame again, so its own marks move.
 
 const ENGINES = {
   engraving: renderEngraving,
@@ -48,8 +53,8 @@ function pickEngine(p) {
   return ENGINES[p.algorithm] ? p.algorithm : 'engraving';
 }
 
-function hasMotion(p) {
-  return MOTION_TYPES.indexOf(p.animation) >= 0;
+function pickMotion(p) {
+  return MOTION_TYPES.indexOf(p.animation) >= 0 ? p.animation : null;
 }
 
 export function createArtwork(canvas, data) {
@@ -61,23 +66,28 @@ export function createArtwork(canvas, data) {
 
   const gw = Math.ceil(data.width / GRID_CELL);
   const gh = Math.ceil(data.height / GRID_CELL);
-  const grid = {
+  const base = {
     gw: gw,
     gh: gh,
     lum: new Float32Array(gw * gh),
     ink: new Float32Array(gw * gh),
     tmp: new Float32Array(gw * gh),
     blur: new Float32Array(gw * gh),
+    version: 0, // counts the builds, so cached fields know when they are stale
   };
   // Colour planes (0-1 per channel) exist only when the source has colour. The Dither engine reads them in colour mode.
   if (data.colour) {
-    grid.cr = new Float32Array(gw * gh);
-    grid.cg = new Float32Array(gw * gh);
-    grid.cb = new Float32Array(gw * gh);
+    base.cr = new Float32Array(gw * gh);
+    base.cg = new Float32Array(gw * gh);
+    base.cb = new Float32Array(gw * gh);
   }
+  let baseKey = null;
 
-  // Per-engine state (buffers and positions) is created on first use. The motion layer has its own.
+  // Per-engine state (buffers and positions) is created on first use. The motion state has its own.
   const engineState = {};
+  const motionState = createMotionState();
+  // The Trail's ghost is warped separately, so the main warp and the ghost do not share buffers.
+  const echoState = createMotionState();
 
   let params = normalizeParams({});
   let lut = buildLut(params);
@@ -93,6 +103,9 @@ export function createArtwork(canvas, data) {
     pal = resolvePalette(params);
   }
 
+  // t: time in seconds (video clock, or the still's clock). dt: time since the last frame, 0 when nothing moves.
+  // opts.reset: start the motion again. opts.loop: loop length in seconds (0 = none); when set, every motion term
+  // depends only on t, so an exported loop closes.
   function render(t, dt, opts) {
     const options = opts || {};
     const started = performance.now();
@@ -100,12 +113,47 @@ export function createArtwork(canvas, data) {
     if (!engineState[algo]) engineState[algo] = {};
     const reset = !!options.reset || lastAlgorithm !== algo;
     lastAlgorithm = algo;
+    const loop = options.loop > 0 ? options.loop : 0;
 
     const f = frameAt(data, t || 0);
-    buildGrid(data, params, lut, f.i0, f.i1, f.a, grid);
     // Colour is built only for the Dither engine in colour mode, so the other algorithms pay nothing for it.
-    if (algo === 'dither' && params.grayscale === false && grid.cr) {
-      buildColourGrid(data, params, lut, f.i0, f.i1, f.a, grid);
+    const colour = algo === 'dither' && params.grayscale === false && !!base.cr;
+    const key = [params.detail, params.edge, params.contrast, params.brightness, params.saturation, colour].join('|');
+    if (data.count > 1 || key !== baseKey) {
+      buildGrid(data, params, lut, f.i0, f.i1, f.a, base);
+      if (colour) buildColourGrid(data, params, lut, f.i0, f.i1, f.a, base);
+      base.version++;
+      baseKey = key;
+    }
+
+    const type = pickMotion(params);
+    let grid = base;
+    let motion = null;
+    if (type) {
+      const speed = clamp(params.speed, 0, 3);
+      const time = motionTime(motionState, t, dt, speed, reset, loop);
+      motion = {
+        type: type,
+        native: mfIsNative(algo, type, params.pattern),
+        // Depth (Velocity) scales Pulse, Hover and Ripple. Snake has no depth control, so it always runs at full depth.
+        amount: type === 'snake' ? 1 : clamp(params.velocity, 0, 3),
+        influence: clamp(params.motion, 0, 3),
+        share: clamp(params.animCount, 0, 100) / 100,
+        direction: params.direction || 0,
+        scale: W / 1920,
+        time: time,
+        freq: (cycles) => motionFrequency(cycles, speed, loop),
+        centre: type === 'pulse' ? mfCentre(motionState, base, W, H) : null,
+        // Dither's Pulse is a threshold wave in the tone the dither reads (see motion-field.js).
+        toneWave: algo === 'dither' && type === 'pulse',
+      };
+      grid = mfWarpGrid(motionState, base, motion, W, H, data, f.i0);
+      // Trail (stills only): the tone of a moment ago, darker wins, so the picture leaves its own marks behind.
+      const trail = clamp(params.trail, 0, 100) / 100;
+      if (trail > 0 && speed > 0 && data.count === 1 && grid !== base) {
+        const lagged = Object.assign({}, motion, { time: motion.time - MOTION_ECHO_LAG });
+        mfEcho(grid, mfWarpGrid(echoState, base, lagged, W, H, data, f.i0), trail);
+      }
     }
 
     const rc = {
@@ -122,14 +170,10 @@ export function createArtwork(canvas, data) {
       reset: reset,
       state: engineState[algo],
       elements: 0,
+      motion: motion,
     };
 
     ENGINES[algo](rc);
-
-    if (hasMotion(params)) {
-      if (!engineState.motion) engineState.motion = {};
-      applyMotionLayer(rc, params.animation, engineState.motion);
-    }
 
     return {
       ms: performance.now() - started,

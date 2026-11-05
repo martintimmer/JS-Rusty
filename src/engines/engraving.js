@@ -1,4 +1,5 @@
 import { clamp, lerp, smoothstep, sampleInk, CELL_PX } from '../rendering/core.js';
+import { mfActive, mfHash, mfSnake, mfSwell, MOTION_BASE } from '../rendering/motion-field.js';
 
 // Engraving, rasterised directly into pixels (no Path2D geometry).
 //
@@ -52,7 +53,7 @@ export function renderEngraving(rc) {
   } else {
     // Detail sets the hand-drawn wobble of each line (0 = ruled, 100 = most wavy).
     const wobble = pitch * lerp(0, 0.28, clamp(p.detail, 0, 100) / 100);
-    elements = engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out);
+    elements = engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out, rc);
   }
 
   // Paper grain: a little deterministic noise over everything.
@@ -70,7 +71,18 @@ export function renderEngraving(rc) {
 }
 
 // Horizontal lines, one line at a time. Returns the number of lines drawn.
-function engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out) {
+// Motion, when on: Hover bobs each line on its own phase, and Snake runs a bead of extra ink along a share of the
+// lines. Both move the engraving's own lines, so they stay crisp.
+function engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out, rc) {
+  const motion = rc.motion;
+  const hover = mfActive(rc, 'hover');
+  const snake = mfActive(rc, 'snake');
+  const scale = W / 1920;
+  const bobAmp = hover ? Math.min(0.3 * pitch, 1.6 * scale) * motion.amount : 0;
+  const bobFreq = hover ? motion.freq(MOTION_BASE.hover) : 0;
+  const tail = 0.1 * W; // bead length behind its head, px
+  const period = W + tail;
+  const swell = 0.8 * clamp(rc.p.thickness, 0.2, 2);
   let lines = 0;
   const last = Math.ceil(H / pitch) + 1;
   for (let k = -1; k <= last; k++) {
@@ -79,8 +91,14 @@ function engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out) {
     const r3 = engHash(k * 5.3 + 0.7);
     const r4 = engHash(k * 2.9 + 4.1);
     // Spacing jitter keeps the lines from looking machine-ruled.
-    const yBase = (k + 0.5) * pitch + (r1 - 0.5) * pitch * 0.2;
-    if (yBase < -pitch || yBase > H + pitch) continue;
+    const yRest = (k + 0.5) * pitch + (r1 - 0.5) * pitch * 0.2;
+    if (yRest < -pitch || yRest > H + pitch) continue;
+    const bob = hover ? bobAmp * Math.sin(2 * Math.PI * (bobFreq * motion.time + mfHash(k * 1.9 + 0.4))) : 0;
+    const yBase = yRest + bob;
+    const head = snake ? mfSnake(motion, k) : -1;
+    const headX = head >= 0 ? head * period : 0;
+    // On video, the bead swells where the picture moves at its head.
+    const lineSwell = head >= 0 ? mfSwell(rc, Math.min(W - 1, headX), yBase) : 1;
     const ph1 = r2 * 6.2832;
     const ph2 = r3 * 6.2832;
     const ph3 = r4 * 6.2832;
@@ -96,7 +114,16 @@ function engHorizontal(grid, W, H, pitch, maxHalf, wobble, bg, ink, out) {
       const tone = sampleInk(grid, xf, clamp(yc, 0, H - 1));
       // Weight varies along the line, so ink pools and thins like a pen does.
       const weight = 0.85 + 0.3 * Math.sin(xf * 0.019 + ph3);
-      const half = maxHalf * smoothstep(0, 1, tone) * weight;
+      let half = maxHalf * smoothstep(0, 1, tone) * weight;
+      if (head >= 0) {
+        // The bead runs along the line behind its head: the ink swells there, and never past the pitch.
+        let dd = headX - xf;
+        if (dd < 0) dd += period;
+        if (dd < tail) {
+          const b = 1 - dd / tail;
+          half = Math.min(half * (1 + swell * lineSwell * b * b), 0.5 * pitch);
+        }
+      }
       if (half < 0.1) continue;
       drawn = true;
       const y0 = Math.max(0, Math.floor(yc - half - 1));

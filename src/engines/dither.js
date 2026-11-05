@@ -160,7 +160,7 @@ export function renderDither(rc) {
     dtColourFill(planes[0], planes[1], planes[2], n, opt, gammaLut, state.grainSeed, light[0], light[1], light[2]);
     // The tone of a colour is its luminance, so the threshold and edge steps work as they do in tone mode.
     for (let i = 0; i < n; i++) {
-      tone[i] = 1 - (77 * light[0][i] + 150 * light[1][i] + 29 * light[2][i]) / 256;
+      tone[i] = 1 - (54 * light[0][i] + 183 * light[1][i] + 19 * light[2][i]) / 256;
     }
   } else {
     dtToneFill(planes[0], n, opt, gammaLut, tone, state.grainSeed);

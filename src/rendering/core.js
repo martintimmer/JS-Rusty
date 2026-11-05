@@ -308,7 +308,7 @@ export function buildColourGrid(data, p, lut, i0, i1, a, grid) {
       g += (lut[c1[j + 1]] - g) * a;
       b += (lut[c1[j + 2]] - b) * a;
     }
-    const L = (77 * r + 150 * g + 29 * b) / 256;
+    const L = (54 * r + 183 * g + 19 * b) / 256;
     grid.cr[i] = clamp(L + s * (r - L), 0, 255) / 255;
     grid.cg[i] = clamp(L + s * (g - L), 0, 255) / 255;
     grid.cb[i] = clamp(L + s * (b - L), 0, 255) / 255;

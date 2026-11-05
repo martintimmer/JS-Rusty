@@ -150,6 +150,8 @@
           <dt>Type</dt><dd id="info-type">—</dd>
           <dt>Source size</dt><dd id="info-size">—</dd>
           <dt>Duration</dt><dd id="info-duration">—</dd>
+          <dt>Colour</dt><dd id="info-colour">—</dd>
+          <dt>Preview</dt><dd id="info-preview">—</dd>
           <dt>Processed</dt><dd id="info-processed">—</dd>
         </dl>
         <div class="fps-row" data-media="video">
@@ -679,6 +681,14 @@
                 <option value="1280">1280 px</option>
                 <option value="960">960 px</option>
                 <option value="640">640 px</option>
+              </select>
+            </label>
+            <label class="field" data-export="colour">
+              <span><span class="lbl">Colour</span></span>
+              <select id="export-colour">
+                <option value="srgb" selected>sRGB (screens)</option>
+                <option value="rec709">Rec. 709 (video curve)</option>
+                <option value="p3">Display P3 (DCI-P3 gamut)</option>
               </select>
             </label>
             <label class="field" data-export="standalone">

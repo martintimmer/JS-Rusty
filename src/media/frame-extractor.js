@@ -8,7 +8,8 @@ import { rgbaToGray, rgbaToRgb } from './image-loader.js';
 // Returns { frames, analysisFrames, analysisColour, count, fps, duration }. The rate is the one asked for: every
 // frame at that rate is sampled, so the artwork plays at the clip's own speed. The caller limits the frame count.
 export async function extractFrames(video, options) {
-  const { fps, width, height, duration, onProgress } = options;
+  const { fps, width, height, duration, onProgress, view } = options;
+  const start = options.start || 0;
   const count = Math.max(1, Math.floor(duration * fps + 1e-6));
   const rate = fps;
   const aw = width / 2;
@@ -20,11 +21,11 @@ export async function extractFrames(video, options) {
   const analysisColour = new Array(count);
 
   for (let k = 0; k < count; k++) {
-    const t = Math.min(k / rate, Math.max(0, duration - 0.02));
+    const t = start + Math.min(k / rate, Math.max(0, duration - 0.02));
     await seekTo(video, t);
-    full.ctx.drawImage(video, 0, 0, width, height);
+    drawView(full.ctx, video, view, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
-    small.ctx.drawImage(video, 0, 0, aw, ah);
+    drawView(small.ctx, video, view, aw, ah);
     const smallPx = small.ctx.getImageData(0, 0, aw, ah).data;
     analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
     analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
@@ -45,16 +46,21 @@ export async function extractFrames(video, options) {
 
 // Picks how the clip is read. A clip the browser can seek is sampled by seeking. A clip it cannot seek (a MediaRecorder
 // recording has no index, and a seek may never land) is sampled by playing it once. The frames are the same either way.
+import { drawView } from './view.js';
+
+// options: fps, width, height (the output size), duration (the trimmed length), start (the trim's first frame, in
+// seconds of the clip), view (the crop and turn, see view.js), onProgress.
 export async function extractVideoFrames(video, options) {
-  const seekable = await canSeek(video, options.duration);
+  const start = options.start || 0;
+  const seekable = await canSeek(video, start + options.duration / 2);
   if (seekable) return extractFrames(video, options);
   return extractFramesByPlayback(video, options);
 }
 
 // True when a seek to the middle of the clip lands within 0.1 s, within half a second.
-function canSeek(video, duration) {
+function canSeek(video, targetTime) {
   if (!video.seekable || video.seekable.length === 0) return Promise.resolve(false);
-  const target = Math.max(0, duration / 2);
+  const target = Math.max(0, targetTime);
   return new Promise((resolve) => {
     let done = false;
     const finish = (ok) => {
@@ -74,7 +80,8 @@ function canSeek(video, duration) {
 // Samples a clip by playing it once, muted, at its own speed. Sample k takes the frame nearest to k / fps, as the
 // browser presents it. A clip that ends before the last sample repeats its last frame.
 function extractFramesByPlayback(video, options) {
-  const { fps, width, height, duration, onProgress } = options;
+  const { fps, width, height, duration, onProgress, view } = options;
+  const start = options.start || 0;
   const count = Math.max(1, Math.floor(duration * fps + 1e-6));
   const rate = fps;
   const aw = width / 2;
@@ -87,9 +94,9 @@ function extractFramesByPlayback(video, options) {
   let k = 0;
 
   const take = () => {
-    full.ctx.drawImage(video, 0, 0, width, height);
+    drawView(full.ctx, video, view, width, height);
     frames[k] = rgbaToGray(full.ctx.getImageData(0, 0, width, height).data, width * height);
-    small.ctx.drawImage(video, 0, 0, aw, ah);
+    drawView(small.ctx, video, view, aw, ah);
     const smallPx = small.ctx.getImageData(0, 0, aw, ah).data;
     analysisFrames[k] = rgbaToGray(smallPx, aw * ah);
     analysisColour[k] = rgbaToRgb(smallPx, aw * ah);
@@ -107,7 +114,7 @@ function extractFramesByPlayback(video, options) {
       if (finished) return;
       const t = meta.mediaTime;
       // Sample k is the frame nearest to k / fps: this frame is that one when it is within half a frame of the time.
-      while (k < count && t >= (k - 0.5) / rate) take();
+      while (k < count && t >= start + (k - 0.5) / rate) take();
       if (k >= count || video.ended) {
         finish();
         return;

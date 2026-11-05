@@ -834,3 +834,96 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .dy-fill { animation: none; opacity: 1; }
   .dy-dot { animation: none; transform: none; }
 }
+
+/* ---------- Edit window: crop, rotate, trim ---------- */
+.edit-modal {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+  background: #0c0b0a; color: var(--text);
+  padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+}
+@media (min-width: 701px) {
+  .edit-modal { inset: 5vh 10vw; border-radius: 14px; border: 1px solid var(--border); overflow: hidden; }
+}
+.edit-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
+}
+.edit-title { margin: 0; font-size: 15px; font-weight: 600; }
+.edit-tabs { display: flex; justify-content: center; gap: 6px; padding: 8px; }
+.edit-tab {
+  appearance: none; border: 0; background: transparent; color: var(--text-muted);
+  font: inherit; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+}
+.edit-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.edit-stage {
+  position: relative; flex: 1 1 auto; min-height: 220px; overflow: hidden;
+  background: #000; touch-action: none; user-select: none;
+}
+.edit-media { position: absolute; display: block; pointer-events: none; }
+.edit-crop {
+  position: absolute; box-sizing: border-box; cursor: move; touch-action: none;
+  border: 1.5px solid var(--text); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.58);
+}
+.edit-grid { position: absolute; inset: 0; pointer-events: none; }
+.edit-line { position: absolute; background: rgba(255, 255, 255, 0.4); }
+.edit-line.v1, .edit-line.v2 { top: 0; bottom: 0; width: 1px; }
+.edit-line.v1 { left: 33.333%; }
+.edit-line.v2 { left: 66.666%; }
+.edit-line.h1, .edit-line.h2 { left: 0; right: 0; height: 1px; }
+.edit-line.h1 { top: 33.333%; }
+.edit-line.h2 { top: 66.666%; }
+.edit-handle { position: absolute; width: 28px; height: 28px; }
+.edit-handle::after { content: ""; position: absolute; background: var(--text); border-radius: 3px; }
+.edit-handle[data-h="nw"] { left: -14px; top: -14px; cursor: nwse-resize; }
+.edit-handle[data-h="se"] { right: -14px; bottom: -14px; cursor: nwse-resize; }
+.edit-handle[data-h="ne"] { right: -14px; top: -14px; cursor: nesw-resize; }
+.edit-handle[data-h="sw"] { left: -14px; bottom: -14px; cursor: nesw-resize; }
+.edit-handle[data-h="n"] { left: 50%; top: -14px; transform: translateX(-50%); cursor: ns-resize; }
+.edit-handle[data-h="s"] { left: 50%; bottom: -14px; transform: translateX(-50%); cursor: ns-resize; }
+.edit-handle[data-h="w"] { top: 50%; left: -14px; transform: translateY(-50%); cursor: ew-resize; }
+.edit-handle[data-h="e"] { top: 50%; right: -14px; transform: translateY(-50%); cursor: ew-resize; }
+.edit-handle::after { left: 50%; top: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); }
+.edit-handle[data-h="n"]::after, .edit-handle[data-h="s"]::after { width: 30px; height: 4px; }
+.edit-handle[data-h="e"]::after, .edit-handle[data-h="w"]::after { width: 4px; height: 30px; }
+.edit-trim { display: flex; flex-direction: column; gap: 10px; padding: 10px 16px 12px; }
+.edit-trim-head { display: flex; align-items: center; gap: 12px; }
+.edit-times { font-variant-numeric: tabular-nums; font-size: 13px; }
+.edit-length { margin-left: auto; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.edit-strip {
+  position: relative; height: 56px; border-radius: 8px; background: var(--bg-panel);
+  touch-action: none; user-select: none;
+}
+.edit-thumbs { position: absolute; inset: 0; display: flex; border-radius: 8px; overflow: hidden; }
+.edit-thumbs canvas { flex: 1 1 0; min-width: 0; height: 100%; display: block; }
+.edit-dim { position: absolute; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); pointer-events: none; }
+#edit-dim-left { left: 0; }
+#edit-dim-right { right: 0; }
+.edit-range {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  border-top: 3px solid var(--accent); border-bottom: 3px solid var(--accent);
+}
+.edit-playhead {
+  position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px;
+  background: var(--text); pointer-events: none;
+}
+.edit-grip {
+  position: absolute; top: -4px; bottom: -4px; width: 22px; margin-left: -11px;
+  background: var(--accent); border-radius: 7px; cursor: ew-resize; touch-action: none;
+}
+.edit-grip::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 20px;
+  transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.5); border-radius: 2px;
+}
+.edit-tools {
+  display: flex; justify-content: center; gap: 10px; padding: 10px 14px;
+  background: var(--bg-elev); border-top: 1px solid var(--border);
+}
+.edit-aspects {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 8px 12px;
+  background: var(--bg-elev);
+}
+.edit-aspect-option {
+  appearance: none; border: 1px solid var(--border-strong); background: transparent; color: var(--text);
+  border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.edit-aspect-option.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }

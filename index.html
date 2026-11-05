@@ -35,6 +35,7 @@
 
       <div class="topbar-right">
         <button class="btn btn-primary live-open" id="btn-live" type="button" title="Record from the camera with a live dithered preview">● Live</button>
+        <button class="btn" id="btn-edit" type="button" title="Crop, rotate or trim the picture" disabled>Edit</button>
         <div class="zoom">
           <span class="zoom-label">Zoom</span>
           <button class="btn icon" id="zoom-out" title="Zoom out">−</button>
@@ -598,6 +599,55 @@
   </div>
 
   <!-- Export window: format, output size and options, and a preview with the blur applied. -->
+  <div class="edit-modal" id="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title" hidden>
+    <div class="edit-bar">
+      <button class="btn" id="edit-cancel" type="button">Cancel</button>
+      <h2 class="edit-title" id="edit-title">Crop</h2>
+      <button class="btn btn-primary" id="edit-done" type="button">Done</button>
+    </div>
+    <div class="edit-tabs" id="edit-tabs" role="tablist">
+      <button class="edit-tab" id="edit-tab-crop" type="button" role="tab" aria-selected="true">Crop</button>
+      <button class="edit-tab" id="edit-tab-trim" type="button" role="tab" aria-selected="false">Trim</button>
+    </div>
+    <div class="edit-stage" id="edit-stage">
+      <img class="edit-media" id="edit-img" alt="" hidden />
+      <video class="edit-media" id="edit-video" playsinline muted hidden></video>
+      <div class="edit-crop" id="edit-crop">
+        <div class="edit-grid"><span class="edit-line v1"></span><span class="edit-line v2"></span><span class="edit-line h1"></span><span class="edit-line h2"></span></div>
+        <div class="edit-handle" data-h="nw"></div>
+        <div class="edit-handle" data-h="n"></div>
+        <div class="edit-handle" data-h="ne"></div>
+        <div class="edit-handle" data-h="e"></div>
+        <div class="edit-handle" data-h="se"></div>
+        <div class="edit-handle" data-h="s"></div>
+        <div class="edit-handle" data-h="sw"></div>
+        <div class="edit-handle" data-h="w"></div>
+      </div>
+    </div>
+    <div class="edit-trim" id="edit-trim" hidden>
+      <div class="edit-trim-head">
+        <button class="btn icon" id="edit-play" type="button" aria-label="Play or pause the trimmed clip">▶</button>
+        <span class="edit-times"><span id="edit-time-start">0:00.0</span> – <span id="edit-time-end">0:00.0</span></span>
+        <span class="edit-length" id="edit-time-length"></span>
+      </div>
+      <div class="edit-strip" id="edit-strip">
+        <div class="edit-thumbs" id="edit-thumbs"></div>
+        <div class="edit-dim" id="edit-dim-left"></div>
+        <div class="edit-dim" id="edit-dim-right"></div>
+        <div class="edit-range" id="edit-range"></div>
+        <div class="edit-playhead" id="edit-playhead"></div>
+        <div class="edit-grip" id="edit-grip-start" data-grip="start" role="slider" aria-label="First frame"></div>
+        <div class="edit-grip" id="edit-grip-end" data-grip="end" role="slider" aria-label="Last frame"></div>
+      </div>
+    </div>
+    <div class="edit-tools" id="edit-tools">
+      <button class="btn" id="edit-aspect" type="button" aria-expanded="false" aria-controls="edit-aspects">Aspect</button>
+      <button class="btn" id="edit-rotate" type="button" aria-label="Rotate 90 degrees">Rotate</button>
+      <button class="btn" id="edit-revert" type="button">Revert</button>
+    </div>
+    <div class="edit-aspects" id="edit-aspects" hidden></div>
+  </div>
+
   <div class="modal-backdrop" id="export-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
       <div class="modal-head">

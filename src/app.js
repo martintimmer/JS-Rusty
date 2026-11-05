@@ -11,6 +11,9 @@ import { isTouchDevice, frameBudgetBytes, FRAME_BYTES_PER_PIXEL, MAX_FRAMES } fr
 import { analyseMotion } from './media/motion-analysis.js';
 import { exportStandaloneJs, downloadBlob } from './export/javascript-exporter.js';
 import { exportStandaloneHtml } from './export/html-exporter.js';
+import { openEditor } from './editor/edit-screen.js';
+import { defaultEdit, normalizeEdit, trimmedDuration, trimRange, viewFor } from './editor/edit-model.js';
+import { viewSize } from './media/view.js';
 import { recordCanvasWebm, pickWebmMime, recordCanvasVideo, pickMp4Mime, mp4BitsPerSecond, supportedMp4Codecs } from './export/video-exporter.js';
 import { exportStill, exportGif, outputSize } from './export/image-exporter.js';
 import * as UI from './ui.js';
@@ -53,6 +56,7 @@ const state = {
   exporting: false,
   loading: false,
   loadToken: 0,
+  edit: defaultEdit(), // crop, turn and trim of the media (see editor/edit-model.js); the original file is kept
 };
 
 const video = $('orig-video');
@@ -70,10 +74,11 @@ function init() {
     getParams: () => state.params,
     setParam: liveSetParam,
     onOpenClip: (file) => handleFile(file),
-    onOpen: pauseEditorForLive,
-    onClose: resumeEditorAfterLive,
+    onOpen: pausePlayback,
+    onClose: resumePlayback,
   });
   bindDock();
+  $('btn-edit').addEventListener('click', openEditing);
   if (!ANIMATIONS_ENABLED) state.params.animation = 'off';
   $('animation-panel').hidden = !ANIMATIONS_ENABLED;
   // The default output is 1080p on every device. Long clips are made smaller automatically when their frames would
@@ -211,6 +216,8 @@ async function handleFile(file) {
         url: loaded.url, element: video,
       };
     }
+    // A new file starts with no crop, turn or trim.
+    state.edit = defaultEdit();
     showSourceInfo();
     UI.layoutPreview(state.media.width, state.media.height, state.zoom);
     // Processing starts as soon as the media has loaded; there is no separate button.
@@ -319,15 +326,20 @@ async function processMedia() {
   syncFpsControl();
   const fps = currentFps();
   // Fit the media inside the chosen resolution box, keeping its aspect ratio.
+  // The edit gives the picture that is sampled (its crop, turned) and, for a video, the clip (its trim).
+  const view = viewFor(media, state.edit);
+  const shown = viewSize(view);
+  const trim = trimRange(media, state.edit);
+  const duration = trimmedDuration(media, state.edit);
   const choice = $('p-res').value;
-  const box = choice === 'original' ? { w: media.width, h: media.height } : (RESOLUTIONS[choice] || RESOLUTIONS['1080']);
+  const box = choice === 'original' ? { w: shown.w, h: shown.h } : (RESOLUTIONS[choice] || RESOLUTIONS['1080']);
   // The output size is set by the short side: 1080p is 1080 pixels high for landscape media and 1080 wide for portrait.
-  const fit = choice === 'original' ? 1 : Math.min(box.w, box.h) / Math.min(media.width, media.height);
-  let W = Math.max(16, Math.round((media.width * fit) / 2) * 2);
-  let H = Math.max(16, Math.round((media.height * fit) / 2) * 2);
+  const fit = choice === 'original' ? 1 : Math.min(box.w, box.h) / Math.min(shown.w, shown.h);
+  let W = Math.max(16, Math.round((shown.w * fit) / 2) * 2);
+  let H = Math.max(16, Math.round((shown.h * fit) / 2) * 2);
   // Frames at the chosen rate. The rate is never lowered. A clip over MAX_FRAMES is refused. Otherwise, when the frames
   // would not fit the memory budget, the picture is made smaller (keeping its shape) and the rate is kept.
-  const frameCount = media.kind === 'video' ? Math.max(1, Math.floor(media.duration * fps + 1e-6)) : 1;
+  const frameCount = media.kind === 'video' ? Math.max(1, Math.floor(duration * fps + 1e-6)) : 1;
   if (frameCount > MAX_FRAMES) {
     setStatus('This clip has ' + frameCount + ' frames at ' + fps + ' fps. The limit is ' + MAX_FRAMES +
       ' frames: use a shorter clip.', true);
@@ -359,13 +371,15 @@ async function processMedia() {
     let sequence;
     if (media.kind === 'image') {
       UI.setProgress(0.5, 'Decoding image');
-      sequence = imageToFrames(media.element, W, H);
+      sequence = imageToFrames(media.element, W, H, view);
     } else {
       sequence = await extractVideoFrames(video, {
         fps: fps,
         width: W,
         height: H,
-        duration: media.duration,
+        start: trim.start,
+        view: view,
+        duration: duration,
         onProgress: (f) => UI.setProgress(f * 0.6, 'Sampling ' + Math.round(f * 100) + '%'),
       });
     }
@@ -565,7 +579,7 @@ function bindTransport() {
   const timeline = $('timeline');
   timeline.addEventListener('input', () => {
     if (state.controller && state.media && state.media.kind === 'video') {
-      state.controller.seek((Number(timeline.value) / 1000) * state.media.duration);
+      state.controller.seek((Number(timeline.value) / 1000) * clipSeconds());
     }
   });
 }
@@ -580,22 +594,56 @@ function canTogglePlay() {
   return isAnimated();
 }
 
-// Live mode draws its own preview. While the camera is open the editor's animation is paused, so its render loop does
-// not compete with the preview; it resumes when Live closes, if it was playing.
-let editorWasPlaying = false;
+// The editor's playback is paused while an overlay (Live or the edit window) is open, so its render loop does not
+// compete with the overlay. It resumes when the overlay closes, if it was playing.
+let playbackWasOn = false;
 
-function pauseEditorForLive() {
+function pausePlayback() {
   if (!state.controller) return;
-  editorWasPlaying = !!state.controller.playing;
-  if (editorWasPlaying) state.controller.setPlaying(false);
+  playbackWasOn = !!state.controller.playing;
+  if (playbackWasOn) state.controller.setPlaying(false);
   updatePlayButton();
 }
 
-function resumeEditorAfterLive() {
-  if (!state.controller || !editorWasPlaying) return;
-  editorWasPlaying = false;
+function resumePlayback() {
+  if (!state.controller || !playbackWasOn) return;
+  playbackWasOn = false;
   state.controller.setPlaying(true);
   updatePlayButton();
+}
+
+// Seconds of the clip as the artwork plays it: the trimmed clip for a video, and none for a still.
+function clipSeconds() {
+  return state.data && state.media && state.media.kind === 'video' ? state.data.duration : 0;
+}
+
+// Edit: opens the crop, turn and trim window on the current media.
+function openEditing() {
+  if (!state.media || state.processing || state.loading || state.recording || state.exporting) return;
+  pausePlayback();
+  openEditor({
+    media: state.media,
+    edit: state.edit,
+    fps: currentFps(),
+    onDone: applyEdit,
+    onClose: resumePlayback,
+  });
+}
+
+// Done in the edit window. A changed edit processes the clip again from the original file; an unchanged one only
+// resumes the playback.
+function applyEdit(edit) {
+  if (sameEdit(edit, state.edit)) {
+    resumePlayback();
+    return;
+  }
+  state.edit = edit;
+  playbackWasOn = false;
+  processMedia();
+}
+
+function sameEdit(a, b) {
+  return JSON.stringify(normalizeEdit(a, state.media)) === JSON.stringify(normalizeEdit(b, state.media));
 }
 
 function togglePlay() {
@@ -628,7 +676,8 @@ function syncOriginalVideo() {
     if (!video.paused) video.pause();
     return;
   }
-  const t = state.controller.currentTime();
+  // The Original view shows the source; its clock starts at the trim's first frame.
+  const t = state.controller.currentTime() + trimRange(state.media, state.edit).start;
   if (Math.abs(video.currentTime - t) > 0.2) video.currentTime = t;
   if (state.controller.playing) {
     if (video.paused) video.play().catch(() => {});
@@ -640,7 +689,7 @@ function syncOriginalVideo() {
 function onClockTick(t, playing) {
   if (!state.data) return;
   syncOriginalVideo();
-  const dur = state.media.kind === 'video' ? state.media.duration : 0;
+  const dur = clipSeconds();
   UI.setText('time-cur', UI.formatTime(t));
   UI.setText('time-dur', UI.formatTime(dur));
   const timeline = $('timeline');
@@ -1132,6 +1181,7 @@ function updateEnabledState() {
   refreshExportDialog();
   UI.setDisabled('timeline', !(hasData && state.media.kind === 'video'));
   UI.setDisabled('btn-restart', !hasData || busy);
+  UI.setDisabled('btn-edit', !state.media || busy);
   UI.setDisabled('btn-play', !canTogglePlay() || busy);
 }
 

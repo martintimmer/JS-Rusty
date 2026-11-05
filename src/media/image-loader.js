@@ -1,5 +1,6 @@
 // Loads still images and converts them into a grayscale analysis frame, plus a colour copy at the analysis size
 // (the Dither engine's colour mode reads it).
+import { drawView } from './view.js';
 
 export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -21,13 +22,13 @@ export async function loadImage(file) {
   };
 }
 
-// Draws the image at the display size (and at half size for analysis) and returns it as a one-frame sequence,
-// in the same shape as extractFrames().
-export function imageToFrames(img, width, height) {
+// Draws the view of the image (its crop, turned) at the display size, and at half size for analysis. Returns it as a
+// one-frame sequence, in the same shape as extractFrames().
+export function imageToFrames(img, width, height, view) {
   const aw = width / 2;
   const ah = height / 2;
-  const full = rgbaToGray(drawPixels(img, width, height), width * height);
-  const smallPx = drawPixels(img, aw, ah);
+  const full = rgbaToGray(drawPixels(img, width, height, view), width * height);
+  const smallPx = drawPixels(img, aw, ah, view);
   return {
     frames: [full],
     analysisFrames: [rgbaToGray(smallPx, aw * ah)],
@@ -40,13 +41,13 @@ export function imageToFrames(img, width, height) {
   };
 }
 
-// The RGBA pixels of the source drawn at w x h.
-function drawPixels(source, w, h) {
+// The RGBA pixels of the view of the source, drawn at w x h.
+function drawPixels(source, w, h, view) {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, w, h);
+  drawView(ctx, source, view, w, h);
   return ctx.getImageData(0, 0, w, h).data;
 }
 

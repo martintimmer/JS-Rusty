@@ -491,7 +491,7 @@ The HTML export wraps the same script in a page that opens from `file://`.
 
 ## 8. Export formats
 
-Every export is made from the export window, opened by the Export button in the Output card at the top of the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, MP4, HTML and JS are not blurred.
+Every export is made from the export window, opened by the Export button in the Output card at the top of the left sidebar. It holds the format, the output width, JPG quality, the GIF frame rate, the GIF target size and Output blur. The output size and length are shown before you export, and a preview beside them shows the centre of the output at its real size, with the blur applied. Blur applies to the saved PNG, JPG and GIF files, so they match the preview. WebM, MP4, HTML and JS are not blurred.
 
 | Format | Content | Notes |
 |---|---|---|
@@ -507,11 +507,12 @@ count, the frame rate it gets, and the loop length. Video and Dither keep their 
 | MP4 | Live recording of the canvas as H.264 (MPEG-4 AVC) or HEVC in an MP4 file | Animated or video artwork only. Compression is High quality, Balanced or Small file; the bit rate scales with the frame size. Only the codecs the browser can record are enabled. MPEG-4 Part 2 cannot be recorded by any browser, so it is not offered. |
 | PNG | The current frame | Stills only |
 | JPG | The current frame, quality 50–100 | Stills only |
-| GIF | One frame for a still, or an animation when animation is on. A still's animation is one loop of 6 s divided by the speed (0.6 to 60 s), which closes | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Frames are stored in full, with no inter-frame optimisation, so files are large. Up to 150 frames, looping forever. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
+| GIF | One frame for a still, or an animation when animation is on. A still's animation is one loop of 6 s divided by the speed (0.6 to 60 s), which closes | Palette is a 256-step ramp from paper to ink, which every engine uses. For a palette from the Dither library, the GIF keeps the palette's own colours (up to 16). Other algorithms use the ramp from the palette's paper to its ink. Each frame after the first stores only the rectangle that changed since the frame before it, so the file is smaller than with full frames and the picture is the same. Up to 150 frames, looping forever. **Target size** (No limit, 2, 5, 10 or 20 MB; 1 MB is 1,000,000 bytes) plans the GIF to fit: a few frames are measured, the frame count is lowered (to 8 fps at least) and then the width, and the real size is checked and the width corrected for up to three passes. The result stays at or under the target when the planner can reach it, and may land a little below it. A clip that needs more than 150 frames at the chosen rate is sampled at a lower rate, so the GIF covers the whole clip. |
 | WebM | A recording of the live canvas | MediaRecorder. MP4 is not offered: no reliable in-browser encoder without extra dependencies. |
 
 The GIF encoder was checked against two independent decoders, on random data (which forces dictionary
-resets) and on a dithered frame. Every pixel matched.
+resets) and on a dithered frame. Every pixel matched. That check was made on full-frame GIFs. The changed-rectangle
+frames and the target-size planner have not been decoded by an independent decoder yet.
 
 ---
 
@@ -608,7 +609,8 @@ Motion analysis for a 10 s clip at 10 fps takes about 0.5 s in the worker.
 - **Low poly** places points by tone gradient. On textured photos the facets follow texture as well as edges, so
   Feature detail and Facet size matter more than on portraits.
 - **The anisotropic Kuwahara variant** is not implemented.
-- **GIF files are large**, because frames are not compressed between frames.
+- **GIF files are large for busy animations.** Dithered motion changes many pixels in every frame, so each frame
+  still costs a lot. Use a Target size to fit a limit.
 - **Standalone exports** need `CompressionStream` and `DecompressionStream` in the viewing browser.
 - **Phones and tablets** keep about 400 MB of processed frames, so long clips are shown smaller, and iOS may stop a tab that uses too much
   memory. WebM recording is not available on iOS.

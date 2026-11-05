@@ -23,10 +23,58 @@ function dtClamp01(v) {
 // Scratch for the OKLab conversion of one target. Module-level, so nothing is allocated per cell.
 const DT_NEAREST_LAB = new Float32Array(3);
 
-// Nearest palette colour to the target, by OKLab distance. The target is the three accumulator channels
-// at cell i (planar, stride n), in sRGB. prev/hyst work as in dtChooseLevel: the previous colour is kept
-// while its squared OKLab distance is within (1 + 2 hyst) of the best one.
+// Colour lookup. Measuring every cell against every palette colour in OKLab is the costliest step of colour dithering,
+// and a frame repeats it for every cell. So without hysteresis the colour is looked up in a table, built once per
+// palette: each 6-bit sRGB colour (64 steps a channel) maps to its nearest palette colour. Its error against the exact
+// search is at most one step of the table, far below what the eye can see in a dither.
+// With hysteresis, the previous colour has to be compared too, so the exact search is used.
+const DT_LUT_STEPS = 63;
+
+function dtBuildNearestLut(colours) {
+  const lut = new Uint8Array(64 * 64 * 64);
+  const lab = colours.oklab;
+  const count = colours.count;
+  const L = DT_NEAREST_LAB;
+  for (let r = 0; r < 64; r++) {
+    for (let g = 0; g < 64; g++) {
+      for (let b = 0; b < 64; b++) {
+        dtOklabFromSrgb(r / DT_LUT_STEPS, g / DT_LUT_STEPS, b / DT_LUT_STEPS, L);
+        let best = 0;
+        let bestD = Infinity;
+        for (let j = 0; j < count; j++) {
+          const dL = L[0] - lab[3 * j];
+          const dA = L[1] - lab[3 * j + 1];
+          const dB = L[2] - lab[3 * j + 2];
+          const d = dL * dL + dA * dA + dB * dB;
+          if (d < bestD) {
+            bestD = d;
+            best = j;
+          }
+        }
+        lut[(r << 12) | (g << 6) | b] = best;
+      }
+    }
+  }
+  return lut;
+}
+
+// Nearest palette colour to the target. The target is the three accumulator channels at cell i (planar, stride n),
+// in sRGB. Without hysteresis the answer comes from the palette's lookup table (built on first use and kept on the
+// palette, which is the same object for every frame). With hysteresis it is the exact search.
 export function dtNearestColour(acc, n, i, colours, prev, hyst) {
+  if (!(hyst > 0)) {
+    if (!colours.nearestLut) colours.nearestLut = dtBuildNearestLut(colours);
+    const r = (dtClamp01(acc[i]) * DT_LUT_STEPS + 0.5) | 0;
+    const g = (dtClamp01(acc[n + i]) * DT_LUT_STEPS + 0.5) | 0;
+    const b = (dtClamp01(acc[2 * n + i]) * DT_LUT_STEPS + 0.5) | 0;
+    return colours.nearestLut[(r << 12) | (g << 6) | b];
+  }
+  return dtNearestExact(acc, n, i, colours, prev, hyst);
+}
+
+// The exact search: nearest palette colour by OKLab distance. prev/hyst work as in dtChooseLevel: the previous colour
+// is kept while its squared OKLab distance is within (1 + 2 hyst) of the best one.
+function dtNearestExact(acc, n, i, colours, prev, hyst) {
   const lab = colours.oklab;
   const count = colours.count;
   dtOklabFromSrgb(dtClamp01(acc[i]), dtClamp01(acc[n + i]), dtClamp01(acc[2 * n + i]), DT_NEAREST_LAB);

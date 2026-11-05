@@ -175,7 +175,7 @@ const MOTION_SPEC = {
 export const RENDER_CONTROL_KEYS = [
   'detail', 'density', 'edge', 'pattern', 'particles', 'animCount', 'motion', 'trail',
   'speed', 'direction', 'velocity', 'thickness', 'contrast', 'brightness',
-  'palette', 'background',
+  'palette', 'background', 'halation', 'halationSize', 'aberration',
   'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen',
   'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing',
   'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline',
@@ -190,6 +190,9 @@ const GLOBAL = {
   brightness: ctl('Brightness', 'Brightness of the source before rendering.'),
   palette: ctl('Palette', 'Ink and paper colours.'),
   background: ctl('Background', 'Paper (light) or ink (dark) background.'),
+  halation: ctl('Halation', 'Light from the bright parts spreads and warms the dark parts around them. Off at 0.'),
+  halationSize: ctl('Halation spread', 'How far the halation spreads.'),
+  aberration: ctl('Chromatic aberration', 'Red and blue part from green toward the edges, as a lens does. Off at 0.'),
 };
 
 // Returns { [controlKey]: { visible, label, hint } } for an algorithm and context.

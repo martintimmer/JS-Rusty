@@ -468,6 +468,22 @@
         </label>
       </section>
 
+      <section class="panel" data-panel="optics">
+        <h2>Optics</h2>
+        <label class="field" data-ctrl="halation">
+          <span><span class="lbl">Halation</span> <em id="halation-val">off</em></span>
+          <input type="range" id="r-halation" min="0" max="100" step="1" value="0" />
+        </label>
+        <label class="field" data-ctrl="halationSize">
+          <span><span class="lbl">Halation spread</span> <em id="halation-size-val">50%</em></span>
+          <input type="range" id="r-halation-size" min="0" max="100" step="1" value="50" />
+        </label>
+        <label class="field" data-ctrl="aberration">
+          <span><span class="lbl">Chromatic aberration</span> <em id="aberration-val">off</em></span>
+          <input type="range" id="r-aberration" min="0" max="100" step="1" value="0" />
+        </label>
+      </section>
+
       <section class="panel" data-panel="motion">
         <h2>Motion &amp; animation</h2>
         <label class="field" data-ctrl="particles">

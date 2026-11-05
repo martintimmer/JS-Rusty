@@ -46,6 +46,7 @@ const RUNTIME_MODULES = [
   '../engines/linocut.js',
   '../engines/ascii.js',
   '../engines/sort.js',
+  '../rendering/optics.js',
   '../rendering/artwork.js',
 ];
 
@@ -173,8 +174,8 @@ async function encodePacked(data, params) {
   const opt = dtResolveSettings(p);
   const bits = packedBitsFor(opt.levels);
   const art = createArtwork(document.createElement('canvas'), data);
-  // The packed frames are the picture as drawn, without motion: the standalone player only paints them.
-  art.setParams(Object.assign({}, p, { animation: 'off' }));
+  // The packed frames are the picture as drawn, without motion or optics: the standalone player only paints them.
+  art.setParams(Object.assign({}, p, { animation: 'off', halation: 0, aberration: 0 }));
   const frames = [];
   let gw = 0;
   let gh = 0;

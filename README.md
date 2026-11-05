@@ -367,6 +367,19 @@ order does not affect the result.
 The defaults (Atkinson, PICO-8 palette, every option at zero or off) reproduce the original renderer's output, and a
 check against it was run on several parameter sets.
 
+### Optics: halation and chromatic aberration
+
+Two optional effects, both off by default (strength 0). They act on the finished frame, after the engine has drawn it
+(`src/rendering/optics.js`), so the preview, PNG, GIF, WebM and MP4 exports and the standalone file all carry them.
+
+- **Halation.** The bright parts of the picture give off warm light that spreads into the dark parts around them, as
+  light does in film. Halation is the strength; Halation spread is how far it reaches. It is worked out on a copy a
+  quarter of the frame's size and added back with the Screen blend, so it stays cheap.
+- **Chromatic aberration.** Red is scaled up a little and blue scaled down about the centre, while green stays, so the
+  colours fringe toward the edges, as a lens does. The strength is the reach: at 100 it is about 1.5% of the frame.
+- **Limits.** The packed Dither standalone file paints palette indices, so it carries no optics. Aberration leaves a thin
+  dark border along the frame's edges, where the scaled blue layer no longer covers the frame.
+
 ---
 
 ## 6. Project structure
@@ -401,6 +414,7 @@ src/
     colour.js, palettes.js     sRGB, linear light and OKLab; the palette library and its mix tables
     artwork.js                 owns the canvas and the analysis grid; dispatches the engines
     motion-field.js            motion types: the grid displacement, the time model and the engines' own marks
+    optics.js                  halation and chromatic aberration, applied to the finished frame
     animation-controller.js    requestAnimationFrame loop; playback clock; render-on-change
   engines/                     one file per renderer (section 5)
   export/
@@ -500,7 +514,8 @@ in `src/algorithm-controls.js` and was derived from the engine code.
 
 Where a motion type and the algorithm use the same control, the motion's label is shown while that motion is on.
 
-Global controls for every algorithm and animation: contrast, brightness, palette and background.
+Global controls for every algorithm and animation: contrast, brightness, palette, background, halation, halation spread
+and chromatic aberration (the Optics panel).
 
 Media rules: the motion influence slider (Stippling, Contour, and the Pulse, Hover, Ripple and Snake types) appears only for
 video, because it needs motion data. Animation types are offered for stills and video. Video-only items

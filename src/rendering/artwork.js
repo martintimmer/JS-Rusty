@@ -15,6 +15,7 @@ import { renderOil } from '../engines/oil.js';
 import { renderLinocut } from '../engines/linocut.js';
 import { renderAscii } from '../engines/ascii.js';
 import { renderSort } from '../engines/sort.js';
+import { applyHalation, applyAberration, createOpticsState } from './optics.js';
 import {
   MOTION_TYPES, MOTION_ECHO_LAG, createMotionState, motionTime, motionFrequency, mfIsNative, mfWarpGrid, mfCentre,
   mfEcho,
@@ -82,6 +83,8 @@ export function createArtwork(canvas, data) {
     base.cb = new Float32Array(gw * gh);
   }
   let baseKey = null;
+  // Optics (halation and chromatic aberration) keep their buffers here.
+  const opticsState = createOpticsState();
 
   // Per-engine state (buffers and positions) is created on first use. The motion state has its own.
   const engineState = {};
@@ -176,6 +179,10 @@ export function createArtwork(canvas, data) {
     };
 
     ENGINES[algo](rc);
+
+    // Optics, after the engine: the preview, the exports and the recordings all carry them. A strength of 0 is off.
+    if (params.halation > 0) applyHalation(ctx, W, H, opticsState, params.halation, params.halationSize, W / 1920);
+    if (params.aberration > 0) applyAberration(ctx, W, H, opticsState, params.aberration);
 
     return {
       ms: performance.now() - started,

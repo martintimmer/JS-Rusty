@@ -19,6 +19,9 @@ export const DEFAULT_PARAMS = {
   speed: 0,                  // Animation speed on a log scale, -100 (ten times slower) to +100 (ten times faster)
   motion: 1,
   trail: 0,                  // Trail: how much of the picture a moment ago stays in the tone, 0-100 (stills only)
+  halation: 0,               // Halation: light from the bright parts spreads into the dark, 0-100 (0 = off)
+  halationSize: 50,          // Halation spread, 0-100
+  aberration: 0,             // Chromatic aberration: red and blue part from green toward the edges, 0-100 (0 = off)
   direction: 0,
   velocity: 1,
   thickness: 1,
@@ -63,7 +66,7 @@ export const DEFAULT_PARAMS = {
   dtTemporal: 0,             // temporal stability, 0-100 (0 = off)
 };
 
-const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'trail', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
+const NUMERIC_KEYS = ['detail', 'density', 'contrast', 'brightness', 'edge', 'particles', 'animCount','speed', 'motion', 'trail', 'halation', 'halationSize', 'aberration', 'direction', 'velocity', 'thickness', 'cdLevels', 'cdSmooth', 'cdTaper', 'cdToneWeight', 'cdShade', 'cdJitter', 'cdMinLen', 'cdBreaks', 'cdHatch', 'cdHatchAngle', 'cdHatchSpacing', 'lpJitter', 'lpShades', 'lpBias', 'lpGap', 'lpOutline', 'dtLevels', 'dtThreshold', 'dtAdaptive', 'dtEdge', 'dtGamma', 'dtNoise', 'dtGrid', 'dtDiffusion', 'dtTemporal', 'saturation', 'dtSeed'];
 
 // Canvas pixels per source-frame pixel. 1 = the canvas matches the processing
 // resolution exactly (1920x1080 at 1080p).

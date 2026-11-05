@@ -5,7 +5,7 @@
 // computed by the same functions the exporters use, so they match what is written.
 
 import { outputSize, standaloneSize, gifTiming } from './image-exporter.js';
-import { loopFrameTiming, packedLoopTiming, STANDALONE_DECODED_BYTES } from './javascript-exporter.js';
+import { loopFrameTiming, packedLoopTiming, STANDALONE_WINDOW_BYTES } from './javascript-exporter.js';
 import { blurRGBA } from './blur.js';
 
 const $ = (id) => document.getElementById(id);
@@ -314,11 +314,11 @@ function describe(src) {
     return size + ' · ' + timing.count + ' loop frames at ' + timing.rate.toFixed(1) + ' fps · ' +
       timing.seconds.toFixed(1) + ' s loop';
   }
-  // The page decodes every frame into memory, so its size is shown with the frames, and a page that is too large to open
-  // is marked here (the export refuses it).
+  // A page holds its frames in memory when they are small. A longer clip is decoded as it plays, a few frames at a time.
   const bytes = src.data.count * dims.w * dims.h;
-  const memory = ' · about ' + Math.round(bytes / 1e6) + ' MB in the page' +
-    (bytes > STANDALONE_DECODED_BYTES ? ' (too large to open: export a smaller width or trim)' : '');
+  const memory = bytes > STANDALONE_WINDOW_BYTES
+    ? ' · the page decodes its frames as it plays'
+    : ' · about ' + Math.round(bytes / 1e6) + ' MB in the page';
   return size + ' · standalone · ' + src.data.count + ' frames' + memory;
 }
 

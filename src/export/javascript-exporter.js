@@ -13,6 +13,7 @@ import { createArtwork } from '../rendering/artwork.js';
 import { dtResolveSettings } from '../rendering/dither/settings.js';
 import { dtPaletteTable } from '../engines/dither.js';
 import { RangeDecoder, codeIndices, encodeIndices } from './ctx-coder.js';
+import { parseVideoContainer, WindowedVideo } from './window-decoder.js';
 
 // Concatenation order matters: core primitives first, then engines, then the orchestrator.
 const RUNTIME_MODULES = [
@@ -56,6 +57,10 @@ export const EXPORT_MAX_WIDTH = 960;
 // The most a standalone page may need in memory once its frames are decoded (one byte a value, 1 GB). A page that would
 // need more fails to open, so the export refuses it before encoding.
 export const STANDALONE_DECODED_BYTES = 1000 * 1000 * 1000;
+
+// A video whose decoded frames would take more than this (256 MB) is decoded as it plays, a few frames at a time, so
+// it is not held in memory at once (see window-decoder.js). Smaller clips are decoded when the page loads.
+export const STANDALONE_WINDOW_BYTES = 256 * 1024 * 1024;
 
 // The bytes a page needs for its frames once decoded: a Dither loop or video, a rendered loop, or the video frames.
 // Estimates are for the export size, and use the processed size for Dither, which is the larger of the two.
@@ -585,46 +590,28 @@ const DECODER_SOURCE = `
   // Video frames: the container written by the exporter (see buildContainer). The frames are decoded with the browser's
   // video decoder and read back as grey (1 channel) or RGB (3 channels), one array per frame.
   function decodeVideoFrames(d) {
-    var bytes = b64ToBytes(d.frames);
-    if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== 'JSRV' || bytes[4] !== 1) {
-      return Promise.reject(new Error('The frame data is not a JS Rusty video container.'));
-    }
     if (typeof VideoDecoder === 'undefined' || typeof EncodedVideoChunk === 'undefined') {
       return Promise.reject(new Error('This browser cannot decode the video frames (WebCodecs is missing).'));
     }
-    var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    var hlen = view.getUint32(5, true);
-    var header = JSON.parse(new TextDecoder().decode(bytes.subarray(9, 9 + hlen)));
-    var W = header.width, H = header.height, fps = header.fps, count = header.count;
-    var n = W * H, channels = header.channels;
-    var canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var parsed;
+    try {
+      parsed = parseVideoContainer(b64ToBytes(d.frames));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    var header = parsed.header;
+    var count = header.count;
+    var toPixels = videoPixels(header);
     var frames = new Array(count);
     var got = 0;
     return new Promise(function (resolve, reject) {
-      var config = { codec: header.codec, codedWidth: W, codedHeight: H, optimizeForLatency: true };
-      if (header.description) config.description = b64ToBytes(header.description);
       var decoder = new VideoDecoder({
         output: function (frame) {
           try {
-            var index = Math.round((frame.timestamp * fps) / 1e6);
-            ctx.drawImage(frame, 0, 0, W, H);
-            var px = ctx.getImageData(0, 0, W, H).data;
-            var out = new Uint8Array(n * channels);
-            for (var i = 0; i < n; i++) {
-              if (channels === 1) {
-                out[i] = px[i * 4];
-              } else {
-                out[i * 3] = px[i * 4];
-                out[i * 3 + 1] = px[i * 4 + 1];
-                out[i * 3 + 2] = px[i * 4 + 2];
-              }
-            }
+            var index = Math.round((frame.timestamp * header.fps) / 1e6);
             if (index >= 0 && index < count) {
               if (!frames[index]) got++;
-              frames[index] = out;
+              frames[index] = toPixels(frame);
             }
           } catch (err) {
             reject(new Error('The page could not hold the frames of this clip in memory (' + err.message +
@@ -635,19 +622,14 @@ const DECODER_SOURCE = `
         },
         error: function (err) { reject(err); }
       });
-      decoder.configure(config);
-      var pos = 9 + hlen;
-      while (pos < bytes.length) {
-        var len = view.getUint32(pos, true);
-        var key = (bytes[pos + 4] & 1) === 1;
-        var index = view.getUint32(pos + 5, true);
-        decoder.decode(new EncodedVideoChunk({
-          type: key ? 'key' : 'delta',
-          timestamp: Math.round((index * 1e6) / fps),
-          data: bytes.subarray(pos + 9, pos + 9 + len)
+      decoder.configure(videoConfig(header));
+      parsed.records.forEach(function (r) {
+        decoder.decode(makeVideoChunk({
+          type: r.key ? 'key' : 'delta',
+          timestamp: Math.round((r.index * 1e6) / header.fps),
+          data: r.data
         }));
-        pos += 9 + len;
-      }
+      });
       decoder.flush().then(function () {
         decoder.close();
         if (got === count) resolve(frames);
@@ -655,9 +637,69 @@ const DECODER_SOURCE = `
       }, reject);
     });
   }
+  // The decoder configuration of a container's header.
+  function videoConfig(header) {
+    var config = { codec: header.codec, codedWidth: header.width, codedHeight: header.height, optimizeForLatency: true };
+    if (header.description) config.description = b64ToBytes(header.description);
+    return config;
+  }
+  // Reads a decoded frame as bytes: grey (one a pixel) or RGB (three), through a canvas of the frame's size.
+  function videoPixels(header) {
+    var W = header.width, H = header.height, n = W * H, channels = header.channels;
+    var canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    return function (frame) {
+      ctx.drawImage(frame, 0, 0, W, H);
+      var px = ctx.getImageData(0, 0, W, H).data;
+      var out = new Uint8Array(n * channels);
+      for (var i = 0; i < n; i++) {
+        if (channels === 1) {
+          out[i] = px[i * 4];
+        } else {
+          out[i * 3] = px[i * 4];
+          out[i * 3 + 1] = px[i * 4 + 1];
+          out[i * 3 + 2] = px[i * 4 + 2];
+        }
+      }
+      return out;
+    };
+  }
+  function makeVideoChunk(opts) {
+    return new EncodedVideoChunk(opts);
+  }
+  // A clip too large to hold in memory is decoded as it plays (see WindowedVideo). This is its window, with no frames yet.
+  function windowedVideo(d) {
+    if (typeof VideoDecoder === 'undefined' || typeof EncodedVideoChunk === 'undefined') {
+      throw new Error('This browser cannot decode the video frames (WebCodecs is missing).');
+    }
+    var parsed = parseVideoContainer(b64ToBytes(d.frames));
+    return new WindowedVideo({
+      count: d.count,
+      fps: parsed.header.fps,
+      chunks: parsed.records,
+      config: videoConfig(parsed.header),
+      makeDecoder: function (output, error) { return new VideoDecoder({ output: output, error: error }); },
+      makeChunk: makeVideoChunk,
+      toPixels: videoPixels(parsed.header)
+    });
+  }
   function decodeArtworkData(d) {
     if (d.mode === 'packed') return new Promise(function (resolve) { resolve(decodePacked(d)); });
-    var framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
+    // A video whose frames would be too large to hold is decoded as it plays. Its frames array starts empty.
+    var win = null;
+    var framesP;
+    if (d.mode === 'video' && d.count * d.width * d.height * d.channels > d.windowBytes) {
+      try {
+        win = windowedVideo(d);
+        framesP = Promise.resolve(win.frames);
+      } catch (err) {
+        framesP = Promise.reject(err);
+      }
+    } else {
+      framesP = d.mode === 'video' ? decodeVideoFrames(d) : decodeDeltaFrames(d);
+    }
     var motionP = d.motion ? Promise.all([
       inflateBytes(b64ToBytes(d.motion.vx)),
       inflateBytes(b64ToBytes(d.motion.vy)),
@@ -676,7 +718,8 @@ const DECODER_SOURCE = `
       }
       return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
                count: d.count, frames: r[0], motion: motion, colour: r[2] ? [r[2]] : null,
-               frameMode: d.mode === 'frames' || (d.mode === 'video' && d.channels === 3) };
+               frameMode: d.mode === 'frames' || (d.mode === 'video' && d.channels === 3),
+               source: win };
     });
   }
 `;
@@ -780,6 +823,8 @@ const MOUNT_SOURCE = `
     var art = null, raf = null, last = null, dirty = true, reset = true;
     var playing = opts.autoplay !== false, loop = opts.loop !== false, time = 0, duration = 0;
     var pendingParams = normalizeParams(Object.assign({}, ARTWORK_PARAMS, opts.params || {}));
+    // The loaded data, and its window when the clip is decoded as it plays (null otherwise).
+    var current = null, win = null;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
@@ -796,6 +841,19 @@ const MOUNT_SOURCE = `
         }
       }
       if (continuous || dirty) {
+        if (win && current) {
+          // The frames the renderer reads at this time must be decoded first. Until they are, the last picture stays.
+          var at = frameAt(current, time);
+          try {
+            win.want(at.i0, at.i1);
+          } catch (err) {
+            // A decoder that cannot start leaves the picture as it is; the next frame tries again.
+          }
+          if (!win.ready(at.i0, at.i1)) {
+            dirty = true;
+            return;
+          }
+        }
         art.render(time, continuous ? dt : 0, { reset: reset });
         dirty = false;
         reset = false;
@@ -804,6 +862,9 @@ const MOUNT_SOURCE = `
     canvas.addEventListener('click', function () { api.toggle(); });
     loadArtwork().then(function (data) {
       duration = data.duration > 0 ? data.duration : 0;
+      current = data;
+      win = data.source || null;
+      if (win) win.want(0, 1);
       art = data.packed ? createPackedArtwork(canvas, data)
         : (data.frameMode ? createFrameArtwork(canvas, data) : createArtwork(canvas, data));
       art.setParams(pendingParams);
@@ -823,7 +884,10 @@ const MOUNT_SOURCE = `
         dirty = true;
         reset = true;
       },
-      destroy: function () { if (raf) cancelAnimationFrame(raf); }
+      destroy: function () {
+        if (raf) cancelAnimationFrame(raf);
+        if (win) win.close();
+      }
     };
     return api;
   }
@@ -831,6 +895,8 @@ const MOUNT_SOURCE = `
 
 // The decoder of the context coder, as source text for the standalone file (see ctx-coder.js).
 const CODER_SOURCE = [RangeDecoder, codeIndices].map((f) => f.toString()).join('\n');
+// The video container reader and the on-demand decoder, as source text (see window-decoder.js).
+const WINDOW_SOURCE = [parseVideoContainer, WindowedVideo].map((f) => f.toString()).join('\n');
 
 // Produces the full JavaScript source for the standalone file.
 export async function createStandaloneScript(data, params, options) {
@@ -847,10 +913,14 @@ export async function createStandaloneScript(data, params, options) {
   let payload;
   // An animated Dither still is a loop of frames (the Loop fps of the export window), so the page moves as the app does.
   const ditherLoop = p.algorithm === 'dither' && data.count === 1 && !data.duration && p.animation !== 'off';
-  // Refuse a page that would not open: the frames are decoded into memory when it loads, so the check is made before
-  // anything is encoded, and the message says what would fit.
+  // A page that would not open is refused before anything is encoded. A video that the page decodes as it plays (when
+  // the video encoder is available) is not held in memory, so it is not refused for its decoded size. Other pages must fit.
   const decoded = decodedEstimate(data, p, opts, framesWanted, ditherLoop);
-  if (decoded > STANDALONE_DECODED_BYTES) {
+  const exportW = exportWidth(data.width, opts.maxWidth);
+  const exportH = Math.max(16, Math.round((data.height * (exportW / data.width)) / 2) * 2);
+  const streamed = p.algorithm !== 'dither' && !framesWanted &&
+    !!(await chooseVideoCodec(exportW, exportH, data.fps, 1));
+  if (decoded > STANDALONE_DECODED_BYTES && !streamed) {
     throw new Error('This page would need about ' + (decoded / 1e9).toFixed(1) + ' GB of memory to open (the limit is ' +
       (STANDALONE_DECODED_BYTES / 1e9).toFixed(1) + ' GB). Export a smaller standalone width, or trim the clip.');
   }
@@ -860,6 +930,8 @@ export async function createStandaloneScript(data, params, options) {
       : null);
   } else if (framesWanted) payload = await encodeLoopFrames(data, p, opts.maxWidth, opts.loopFps, opts.onProgress);
   else payload = await encodeData(data, opts.maxWidth, withColour);
+  // The page decodes a video as it plays once its frames pass this size (see decodeArtworkData).
+  payload.windowBytes = STANDALONE_WINDOW_BYTES;
   // A Dither video or fixed still is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 
@@ -868,6 +940,7 @@ export async function createStandaloneScript(data, params, options) {
     '(function (global) {',
     "  'use strict';",
     runtime,
+    WINDOW_SOURCE,
     CODER_SOURCE,
     DECODER_SOURCE,
     '  var ARTWORK_DATA = ' + JSON.stringify(payload) + ';',

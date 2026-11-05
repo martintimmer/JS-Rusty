@@ -77,6 +77,17 @@ export function shoulder(l) {
   return SHOULDER_KNEE + (1 - SHOULDER_KNEE) * (1 - Math.exp(-(l - SHOULDER_KNEE) / (1 - SHOULDER_KNEE)));
 }
 
+// The largest s from 0 to 1 for which L + s * (c - L) stays within 0 to 1 for each channel c. Scaling a colour's
+// difference from its luminance by s keeps its luminance and its hue, and brings it into gamut.
+export function gamutScale(r, g, b, L) {
+  let s = 1;
+  for (const c of [r, g, b]) {
+    if (c > 1 && c > L) s = Math.min(s, (1 - L) / (c - L));
+    else if (c < 0 && c < L) s = Math.min(s, L / (L - c));
+  }
+  return s < 0 ? 0 : s;
+}
+
 function decodeFn(transfer) {
   switch (transfer) {
     case 'srgb': return srgbEotf;
@@ -171,14 +182,17 @@ export function createConverter(src, target) {
 
   const m = primariesMatrix(primaries, dst.primaries);
   const luma = rgbToXyz(primaries).slice(3, 6);
+  // The luminance row of the output space, used to shoulder and to gamut-map the output colour.
+  const outLuma = rgbToXyz(dst.primaries).slice(3, 6);
 
-  // Linear to encoded, indexed by a square-root warp of the linear value, so the dark end keeps its steps.
+  // Linear to encoded, indexed by a square-root warp of the linear value, so the dark end keeps its steps. Values
+  // reach this table already in gamut (0 to 1), so no shoulder is needed here.
   const encode = encodeFn(dst.transfer);
   const encodeLut = new Uint8Array(LUT_N);
   for (let k = 0; k < LUT_N; k++) {
     const u = k / (LUT_N - 1);
     const lin = u * u * LIN_MAX;
-    const v = encode(hdr ? shoulder(lin) : lin);
+    const v = encode(lin);
     encodeLut[k] = Math.max(0, Math.min(255, Math.round(255 * v)));
   }
   const linIndex = (lin) => {
@@ -207,9 +221,25 @@ export function createConverter(src, target) {
         G *= f;
         B *= f;
       }
-      const rl = m[0] * R + m[1] * G + m[2] * B;
-      const gl = m[3] * R + m[4] * G + m[5] * B;
-      const bl = m[6] * R + m[7] * G + m[8] * B;
+      let rl = m[0] * R + m[1] * G + m[2] * B;
+      let gl = m[3] * R + m[4] * G + m[5] * B;
+      let bl = m[6] * R + m[7] * G + m[8] * B;
+      // The luminance of the output colour. For HDR it is shouldered, and the colour is scaled with it, so the hue stays.
+      let L = outLuma[0] * rl + outLuma[1] * gl + outLuma[2] * bl;
+      if (hdr && L > 0) {
+        const k = shoulder(L) / L;
+        rl *= k;
+        gl *= k;
+        bl *= k;
+        L = shoulder(L);
+      }
+      // A colour outside the output gamut is brought in by desaturating it toward its own luminance, so its hue is kept.
+      // Clipping each channel instead would turn a saturated blue toward purple or white.
+      L = L < 0 ? 0 : (L > 1 ? 1 : L);
+      const s = gamutScale(rl, gl, bl, L);
+      rl = L + s * (rl - L);
+      gl = L + s * (gl - L);
+      bl = L + s * (bl - L);
       out[o] = encodeLut[linIndex(rl)];
       out[o + 1] = encodeLut[linIndex(gl)];
       out[o + 2] = encodeLut[linIndex(bl)];

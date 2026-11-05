@@ -87,8 +87,10 @@ export class AnimationController {
     const animated = params.animation !== 'off';
     const continuous = this.playing && (this.isVideo || animated);
     if (continuous || this.dirty) {
+      // A video's motion runs on accumulated time, like a still's, so changing the speed or scrubbing never jumps it.
+      // Only a still's loop, while it is recorded, is closed (see stillLoopSeconds).
       const result = this.artwork.render(this.clock, continuous ? dt : 0,
-        { reset: this.forceReset, loop: this.loopSeconds });
+        { reset: this.forceReset, loop: this.isVideo ? 0 : this.loopSeconds });
       this.dirty = false;
       this.forceReset = false;
       this.trackStats(now, result);

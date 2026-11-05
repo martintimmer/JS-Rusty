@@ -8,7 +8,7 @@
 // zeros for video), then the whole block is deflate-compressed and base64-encoded.
 // Motion vectors are stored as Int8 / Uint8 and base64-encoded.
 
-import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, resolvePalette } from '../rendering/core.js';
+import { DEFAULT_PARAMS, normalizeParams, CANVAS_SCALE, GRID_CELL, resolvePalette } from '../rendering/core.js';
 import { createArtwork } from '../rendering/artwork.js';
 import { dtResolveSettings } from '../rendering/dither/settings.js';
 import { dtPaletteTable } from '../engines/dither.js';
@@ -69,7 +69,8 @@ export function stripModuleSyntax(src) {
 }
 
 // Resamples the processed frames to the export width and packs them (delta + deflate).
-export async function encodeData(data, maxWidth) {
+// withColour: also pack the colour of the analysis grid (one still frame), for the algorithms that read it.
+export async function encodeData(data, maxWidth, withColour) {
   const targetW = Math.max(16, Math.min(data.width, Math.round(maxWidth || EXPORT_MAX_WIDTH)));
   const scale = targetW / data.width;
   const targetH = Math.max(16, Math.round((data.height * scale) / 2) * 2);
@@ -120,6 +121,29 @@ export async function encodeData(data, maxWidth) {
     };
   }
 
+  // Colour: the analysis colour of the still, resampled to the export's grid (3 bytes per cell).
+  let colour = null;
+  const gw0 = Math.round(data.width / GRID_CELL);
+  const gh0 = Math.round(data.height / GRID_CELL);
+  if (withColour && data.colour && data.colour[0] && data.colour[0].length >= 3 * gw0 * gh0) {
+    const src = data.colour[0];
+    const gwE = Math.ceil(targetW / GRID_CELL);
+    const ghE = Math.ceil(targetH / GRID_CELL);
+    const bytes = new Uint8Array(3 * gwE * ghE);
+    for (let gy = 0; gy < ghE; gy++) {
+      const sy = Math.min(gh0 - 1, Math.floor(((gy + 0.5) * gh0) / ghE));
+      for (let gx = 0; gx < gwE; gx++) {
+        const sx = Math.min(gw0 - 1, Math.floor(((gx + 0.5) * gw0) / gwE));
+        const s = 3 * (sy * gw0 + sx);
+        const o = 3 * (gy * gwE + gx);
+        bytes[o] = src[s];
+        bytes[o + 1] = src[s + 1];
+        bytes[o + 2] = src[s + 2];
+      }
+    }
+    colour = bytesToBase64(await deflate(bytes));
+  }
+
   const compressed = await deflate(packed);
   return {
     width: targetW,
@@ -130,6 +154,7 @@ export async function encodeData(data, maxWidth) {
     frameBytes: n,
     frames: bytesToBase64(compressed),
     motion: motion,
+    colour: colour,
   };
 }
 
@@ -274,8 +299,11 @@ const DECODER_SOURCE = `
           diff: b64ToBytes(d.motion.diff)
         };
       }
-      return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
-               count: d.count, frames: frames, motion: motion };
+      var colourP = d.colour ? inflateBytes(b64ToBytes(d.colour)) : Promise.resolve(null);
+      return colourP.then(function (colourBytes) {
+        return { width: d.width, height: d.height, fps: d.fps, duration: d.duration,
+                 count: d.count, frames: frames, motion: motion, colour: colourBytes ? [colourBytes] : null };
+      });
     });
   }
 `;
@@ -355,7 +383,7 @@ const MOUNT_SOURCE = `
         }
       }
       if (continuous || dirty) {
-        art.render(time, continuous ? dt : 0, { reset: reset, loop: duration });
+        art.render(time, continuous ? dt : 0, { reset: reset });
         dirty = false;
         reset = false;
       }
@@ -393,7 +421,11 @@ export async function createStandaloneScript(data, params, options) {
   const runtime = await buildRuntimeSource();
   const p = normalizeParams(params || DEFAULT_PARAMS);
   // Dither artwork is packed as palette indices. Every other algorithm ships its frames and renders them at run time.
-  const payload = p.algorithm === 'dither' ? await encodePacked(data, p) : await encodeData(data, opts.maxWidth);
+  // The Low poly Mosaic reads colour, so a still of that algorithm carries its colour frame.
+  const withColour = p.algorithm === 'lowpoly' && data.count === 1 && !!data.colour;
+  const payload = p.algorithm === 'dither'
+    ? await encodePacked(data, p)
+    : await encodeData(data, opts.maxWidth, withColour);
   // Packed Dither artwork is a fixed picture (see encodePacked), so it does not carry motion.
   const title = opts.title || 'JS Rusty artwork';
 

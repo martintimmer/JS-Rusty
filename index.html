@@ -132,6 +132,7 @@
             <button class="seg" data-anim="pulse" role="radio" aria-checked="false">Pulse <span>Breathing contours</span></button>
             <button class="seg" data-anim="hover" role="radio" aria-checked="false">Hover <span>Marks float</span></button>
             <button class="seg" data-anim="ripple" role="radio" aria-checked="false">Ripple <span>Wave from the outline</span></button>
+            <button class="seg" data-anim="mosaic" role="radio" aria-checked="false" hidden>Mosaic <span>Voronoi cells that drift</span></button>
           </div>
           <p class="muted small" id="anim-note"></p>
         </section>
@@ -486,8 +487,8 @@
           <input type="range" id="r-trail" min="0" max="100" step="1" value="0" />
         </label>
         <label class="field" data-ctrl="speed">
-          <span><span class="lbl">Speed</span> <em id="speed-val">1.00×</em></span>
-          <input type="range" id="r-speed" min="0.1" max="3" step="0.05" value="1" />
+          <span><span class="lbl">Animation speed</span> <em id="speed-val">1.00×</em></span>
+          <input type="range" id="r-speed" min="-100" max="100" step="1" value="0" />
         </label>
         <label class="field" data-ctrl="direction">
           <span><span class="lbl">Flow direction</span> <em id="direction-val">0°</em></span>

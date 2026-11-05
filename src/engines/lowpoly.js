@@ -1,7 +1,9 @@
-import { clamp, lerp, sampleInk } from '../rendering/core.js';
+import { clamp, lerp, sampleInk, CELL_PX } from '../rendering/core.js';
+import { mfHash } from '../rendering/motion-field.js';
 
 // Geometric low poly: the picture is cut into triangles, and every triangle is filled with one flat
-// shade taken from the darkness under its centre.
+// shade taken from the darkness under its centre. With the Mosaic animation (on by default for this
+// algorithm) the same facets are drawn as a Voronoi mosaic instead, see renderMosaic.
 //   Points     a coarse, jittered lattice covers the whole picture (its outer ring sits on the frame, so
 //              there are no holes). Extra points are drawn in proportion to the local tone gradient, so
 //              facets are small at edges and features and large in flat areas (Feature detail).
@@ -166,6 +168,137 @@ function lpMesh(rc, cell, feature, jitter) {
   return state.mesh;
 }
 
+// Voronoi mosaic. Every grid cell belongs to its nearest seed, and each seed's region is one flat colour: the photo's
+// colour at the seed when the picture has colour, otherwise a shade of the palette from the tone at the seed. Seeds sit
+// on a jittered lattice of the facet spacing, and each drifts on its own path with the motion clock, so the regions
+// slide and their colours move with the picture under them. The regions are found on the analysis grid and painted at
+// that size, then scaled up with smoothing off, the way the dither engine paints.
+const LP_MOSAIC_DRIFT = 0.25; // how far a seed drifts at Depth 1, in lattice cells (never more than 0.3)
+
+function renderMosaic(rc, cell, jitter) {
+  const { ctx, W, H, grid, p, pal, state, motion } = rc;
+  const gw = grid.gw;
+  const gh = grid.gh;
+  const bg = pal.bg;
+  const ink = pal.stroke;
+  const shades = clamp(Math.round(p.lpShades), 2, 16);
+  const gapShare = (clamp(p.lpGap, 0, 100) / 100) * 0.9;
+  const outlineShare = (clamp(p.lpOutline, 0, 100) / 100) * 0.7;
+  const colourful = !!grid.cr && p.grayscale === false;
+
+  // Seeds: one per lattice cell, the lattice spacing matches the triangles' spacing.
+  const S = cell * 2.4;
+  const cols = Math.ceil(W / S);
+  const rows = Math.ceil(H / S);
+  const n = cols * rows;
+  if (!state.mosaic || state.mosaic.n !== n) {
+    state.mosaic = { n: n, sx: new Float32Array(n), sy: new Float32Array(n), col: new Float32Array(3 * n) };
+  }
+  const M = state.mosaic;
+  const drift = Math.min(0.3, LP_MOSAIC_DRIFT * clamp(motion.amount, 0, 4)) * S;
+  const spread = 0.3 * clamp(jitter, 0, 1) * S;
+  const slow = motion.freq(1);
+  const quick = motion.freq(2);
+  const time = motion.time;
+
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const id = j * cols + i;
+      // Each seed keeps its place in the lattice, drifts on a small circle about it, and runs one or two laps per loop.
+      const phase = 2 * Math.PI * ((mfHash(id * 0.9 + 0.3) < 0.5 ? slow : quick) * time + mfHash(id * 1.3 + 0.7));
+      const x = clamp((i + 0.5) * S + (mfHash(id * 2.1 + 0.4) - 0.5) * 2 * spread + drift * Math.cos(phase), 0, W);
+      const y = clamp((j + 0.5) * S + (mfHash(id * 3.7 + 1.1) - 0.5) * 2 * spread + drift * Math.sin(phase), 0, H);
+      M.sx[id] = x;
+      M.sy[id] = y;
+      // The seed's colour: the photo at the seed, or a palette shade of the tone there.
+      const cellIndex = clamp(Math.floor(y / CELL_PX), 0, gh - 1) * gw + clamp(Math.floor(x / CELL_PX), 0, gw - 1);
+      if (colourful) {
+        M.col[3 * id] = grid.cr[cellIndex] * 255;
+        M.col[3 * id + 1] = grid.cg[cellIndex] * 255;
+        M.col[3 * id + 2] = grid.cb[cellIndex] * 255;
+      } else {
+        const q = Math.round(clamp(grid.ink[cellIndex], 0, 1) * (shades - 1)) / (shades - 1);
+        M.col[3 * id] = bg[0] + (ink[0] - bg[0]) * q;
+        M.col[3 * id + 1] = bg[1] + (ink[1] - bg[1]) * q;
+        M.col[3 * id + 2] = bg[2] + (ink[2] - bg[2]) * q;
+      }
+    }
+  }
+
+  // Owner of every grid cell: the nearest seed among the 3 x 3 lattice cells around it. Seeds stay near their place
+  // (jitter and drift are capped at 0.6 of a lattice cell), so the nearest seed is in that block; the rare exception
+  // shows as a small sliver at a border, not as a missing region.
+  if (!state.mosaicOwner || state.mosaicOwner.length !== gw * gh) state.mosaicOwner = new Int32Array(gw * gh);
+  const owner = state.mosaicOwner;
+  for (let gy = 0; gy < gh; gy++) {
+    const py = gy * CELL_PX + 1;
+    const r0 = clamp(Math.floor(py / S), 0, rows - 1);
+    for (let gx = 0; gx < gw; gx++) {
+      const px = gx * CELL_PX + 1;
+      const c0 = clamp(Math.floor(px / S), 0, cols - 1);
+      let best = 0;
+      let bestD = Infinity;
+      for (let dr = -1; dr <= 1; dr++) {
+        const r = clamp(r0 + dr, 0, rows - 1);
+        for (let dc = -1; dc <= 1; dc++) {
+          const c = clamp(c0 + dc, 0, cols - 1);
+          const id = r * cols + c;
+          const ddx = M.sx[id] - px;
+          const ddy = M.sy[id] - py;
+          const d = ddx * ddx + ddy * ddy;
+          if (d < bestD) {
+            bestD = d;
+            best = id;
+          }
+        }
+      }
+      owner[gy * gw + gx] = best;
+    }
+  }
+
+  // Paint the regions at the grid's size. A cell on a border is darkened (Outline) and lightened (Facet gap).
+  if (!state.mosaicCanvas) state.mosaicCanvas = document.createElement('canvas');
+  const small = state.mosaicCanvas;
+  if (small.width !== gw || small.height !== gh) {
+    small.width = gw;
+    small.height = gh;
+  }
+  const sctx = small.getContext('2d');
+  if (!state.mosaicImg || state.mosaicImg.width !== gw || state.mosaicImg.height !== gh) {
+    state.mosaicImg = sctx.createImageData(gw, gh);
+  }
+  const img = state.mosaicImg.data;
+  for (let gy = 0; gy < gh; gy++) {
+    for (let gx = 0; gx < gw; gx++) {
+      const o = gy * gw + gx;
+      const id = owner[o];
+      let r = M.col[3 * id];
+      let g = M.col[3 * id + 1];
+      let b = M.col[3 * id + 2];
+      const left = gx > 0 ? owner[o - 1] : id;
+      const right = gx < gw - 1 ? owner[o + 1] : id;
+      const up = gy > 0 ? owner[o - gw] : id;
+      const down = gy < gh - 1 ? owner[o + gw] : id;
+      if (left !== id || right !== id || up !== id || down !== id) {
+        r += (ink[0] - r) * outlineShare;
+        g += (ink[1] - g) * outlineShare;
+        b += (ink[2] - b) * outlineShare;
+        r += (bg[0] - r) * gapShare;
+        g += (bg[1] - g) * gapShare;
+        b += (bg[2] - b) * gapShare;
+      }
+      img[4 * o] = r;
+      img[4 * o + 1] = g;
+      img[4 * o + 2] = b;
+      img[4 * o + 3] = 255;
+    }
+  }
+  sctx.putImageData(state.mosaicImg, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(small, 0, 0, gw, gh, 0, 0, W, H);
+  rc.elements = n;
+}
+
 export function renderLowPoly(rc) {
   const { ctx, W, H, grid, p, pal } = rc;
   const scale = W / 1920;
@@ -179,6 +312,12 @@ export function renderLowPoly(rc) {
     const est = (W / (cell * 2.4) + 2) * (H / (cell * 2.4) + 2) + feature * 0.35 * (W * H) / (cell * cell);
     if (est <= LP_MAX_POINTS) break;
     cell *= 1.08;
+  }
+
+  // The Mosaic animation draws Voronoi regions in place of the triangles.
+  if (rc.motion && rc.motion.type === 'mosaic' && rc.motion.native) {
+    renderMosaic(rc, cell, jitter);
+    return;
   }
 
   const mesh = lpMesh(rc, cell, feature, jitter);
